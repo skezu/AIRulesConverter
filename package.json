@@ -1,0 +1,92 @@
+{
+  "name": "rules-converter",
+  "displayName": "Rules Converter",
+  "publisher": "skezu",
+  "description": "Convert AI coding rules between Cursor, Windsurf, Kiro, and Antigravity formats.",
+  "version": "0.0.1",
+  "engines": {
+    "vscode": "^1.80.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "rules-converter-view",
+          "title": "Rules Converter",
+          "icon": "$(symbol-ruler)"
+        }
+      ]
+    },
+    "views": {
+      "rules-converter-view": [
+        {
+          "id": "detected-rules",
+          "name": "Detected Rules"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "rulesConverter.refresh",
+        "title": "Refresh Rules",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "rulesConverter.convertRule",
+        "title": "Convert Rule"
+      },
+      {
+        "command": "rulesConverter.openRule",
+        "title": "Open Rule"
+      },
+      {
+        "command": "rulesConverter.deleteRule",
+        "title": "Delete Rule",
+        "icon": "$(trash)"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "rulesConverter.refresh",
+          "when": "view == detected-rules",
+          "group": "navigation"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "rulesConverter.convertRule",
+          "when": "view == detected-rules",
+          "group": "inline"
+        },
+        {
+          "command": "rulesConverter.deleteRule",
+          "when": "view == detected-rules",
+          "group": "inline"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.80.0",
+    "@types/node": "^16.x",
+    "@types/js-yaml": "^4.0.5",
+    "typescript": "^5.1.3",
+    "js-yaml": "^4.1.0"
+  },
+  "dependencies": {
+    "js-yaml": "^4.1.0"
+  }
+}

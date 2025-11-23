@@ -1,0 +1,3 @@
+// Verification script disabled to prevent debug conflicts.
+// import * as vscode from 'vscode';
+// ...

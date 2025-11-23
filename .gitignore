@@ -1,0 +1,4 @@
+/.agent
+/node_modules
+/out
+/rules-converter-0.0.1.vsix
