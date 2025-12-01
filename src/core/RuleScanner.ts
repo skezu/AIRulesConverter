@@ -24,27 +24,48 @@ export class RuleScanner {
         return rules;
     }
 
+    private async findFilesInDir(dirPath: string, extension: string, baseDir: string): Promise<string[]> {
+        let filesFound: string[] = [];
+        if (!fs.existsSync(dirPath)) {
+            return [];
+        }
+
+        const entries = fs.readdirSync(dirPath, { withFileTypes: true });
+
+        for (const entry of entries) {
+            const fullPath = path.join(dirPath, entry.name);
+            if (entry.isDirectory()) {
+                filesFound = filesFound.concat(await this.findFilesInDir(fullPath, extension, baseDir));
+            } else if (entry.isFile() && entry.name.endsWith(extension)) {
+                filesFound.push(fullPath);
+            }
+        }
+        return filesFound;
+    }
+
     private async scanCursorRules(rootPath: string): Promise<Rule[]> {
         const rules: Rule[] = [];
         const rulesDir = path.join(rootPath, '.cursor', 'rules');
-        if (fs.existsSync(rulesDir)) {
-            const files = fs.readdirSync(rulesDir).filter(f => f.endsWith('.mdc'));
-            for (const file of files) {
-                const filePath = path.join(rulesDir, file);
-                const rawContent = fs.readFileSync(filePath, 'utf-8');
-                const { content, metadata } = this.parseFrontmatter(rawContent);
+        const files = await this.findFilesInDir(rulesDir, '.mdc', rulesDir);
 
-                rules.push({
-                    id: `cursor-${file}`,
-                    name: file.replace('.mdc', ''),
-                    ide: 'cursor',
-                    category: 'rules',
-                    filePath,
-                    content,
-                    rawContent,
-                    metadata
-                });
-            }
+        for (const filePath of files) {
+            const rawContent = fs.readFileSync(filePath, 'utf-8');
+            const { content, metadata } = this.parseFrontmatter(rawContent);
+
+            const relativePath = path.relative(rulesDir, filePath);
+            const ruleName = relativePath.replace('.mdc', '').replace(/\\/g, '/'); // Use '/' for rule names
+            const ruleId = `cursor-${ruleName}`;
+
+            rules.push({
+                id: ruleId,
+                name: ruleName,
+                ide: 'cursor',
+                category: 'rules',
+                filePath,
+                content,
+                rawContent,
+                metadata
+            });
         }
         return rules;
     }
@@ -70,23 +91,26 @@ export class RuleScanner {
 
         // Check .windsurf/rules/
         const rulesDir = path.join(rootPath, '.windsurf', 'rules');
-        if (fs.existsSync(rulesDir)) {
-            const files = fs.readdirSync(rulesDir).filter(f => f.endsWith('.md'));
-            for (const file of files) {
-                const filePath = path.join(rulesDir, file);
-                const rawContent = fs.readFileSync(filePath, 'utf-8');
-                const { content, metadata } = this.parseFrontmatter(rawContent);
-                rules.push({
-                    id: `windsurf-${file}`,
-                    name: file.replace('.md', ''),
-                    ide: 'windsurf',
-                    category: 'rules',
-                    filePath,
-                    content,
-                    rawContent,
-                    metadata
-                });
-            }
+        const files = await this.findFilesInDir(rulesDir, '.md', rulesDir);
+
+        for (const filePath of files) {
+            const rawContent = fs.readFileSync(filePath, 'utf-8');
+            const { content, metadata } = this.parseFrontmatter(rawContent);
+
+            const relativePath = path.relative(rulesDir, filePath);
+            const ruleName = relativePath.replace('.md', '').replace(/\\/g, '/');
+            const ruleId = `windsurf-${ruleName}`;
+
+            rules.push({
+                id: ruleId,
+                name: ruleName,
+                ide: 'windsurf',
+                category: 'rules',
+                filePath,
+                content,
+                rawContent,
+                metadata
+            });
         }
         return rules;
     }
@@ -95,51 +119,55 @@ export class RuleScanner {
         const rules: Rule[] = [];
         // Steering
         const steeringDir = path.join(rootPath, '.kiro', 'steering');
-        if (fs.existsSync(steeringDir)) {
-            const files = fs.readdirSync(steeringDir).filter(f => f.endsWith('.md'));
-            for (const file of files) {
-                const filePath = path.join(steeringDir, file);
-                const rawContent = fs.readFileSync(filePath, 'utf-8');
-                const { content, metadata } = this.parseFrontmatter(rawContent);
-                // Merge parsed metadata with default Kiro metadata
-                const mergedMetadata = { inclusion: 'always' as const, ...metadata };
-                rules.push({
-                    id: `kiro-steering-${file}`,
-                    name: file.replace('.md', ''),
-                    ide: 'kiro',
-                    category: 'steering',
-                    filePath,
-                    content,
-                    rawContent,
-                    metadata: mergedMetadata
-                });
-            }
+        const steeringFiles = await this.findFilesInDir(steeringDir, '.md', steeringDir);
+
+        for (const filePath of steeringFiles) {
+            const rawContent = fs.readFileSync(filePath, 'utf-8');
+            const { content, metadata } = this.parseFrontmatter(rawContent);
+            // Merge parsed metadata with default Kiro metadata
+            const mergedMetadata = { inclusion: 'always' as const, ...metadata };
+
+            const relativePath = path.relative(steeringDir, filePath);
+            const ruleName = relativePath.replace('.md', '').replace(/\\/g, '/');
+            const ruleId = `kiro-steering-${ruleName}`;
+
+            rules.push({
+                id: ruleId,
+                name: ruleName,
+                ide: 'kiro',
+                category: 'steering',
+                filePath,
+                content,
+                rawContent,
+                metadata: mergedMetadata
+            });
         }
 
         // Specs
         const specsDir = path.join(rootPath, '.kiro', 'specs');
-        if (fs.existsSync(specsDir)) {
-            const specFolders = fs.readdirSync(specsDir).filter(f => fs.statSync(path.join(specsDir, f)).isDirectory());
-            for (const specFolder of specFolders) {
-                const specPath = path.join(specsDir, specFolder);
-                const files = fs.readdirSync(specPath).filter(f => f.endsWith('.md'));
-                for (const file of files) {
-                    const filePath = path.join(specPath, file);
-                    const rawContent = fs.readFileSync(filePath, 'utf-8');
-                    const { content, metadata } = this.parseFrontmatter(rawContent);
-                    const mergedMetadata = { inclusion: 'manual' as const, ...metadata };
-                    rules.push({
-                        id: `kiro-spec-${specFolder}-${file}`,
-                        name: `${specFolder}/${file.replace('.md', '')}`,
-                        ide: 'kiro',
-                        category: 'specs',
-                        filePath,
-                        content,
-                        rawContent,
-                        metadata: mergedMetadata
-                    });
-                }
-            }
+        const specFiles = await this.findFilesInDir(specsDir, '.md', specsDir);
+
+        for (const filePath of specFiles) {
+            const rawContent = fs.readFileSync(filePath, 'utf-8');
+            const { content, metadata } = this.parseFrontmatter(rawContent);
+            const mergedMetadata = { inclusion: 'manual' as const, ...metadata };
+
+            const relativePath = path.relative(specsDir, filePath);
+            const pathParts = relativePath.split(path.sep);
+            const specFolder = pathParts.length > 1 ? pathParts[0] : ''; // Get the first level folder name
+            const ruleName = relativePath.replace('.md', '').replace(/\\/g, '/');
+            const ruleId = `kiro-spec-${ruleName}`;
+
+            rules.push({
+                id: ruleId,
+                name: ruleName,
+                ide: 'kiro',
+                category: 'specs',
+                filePath,
+                content,
+                rawContent,
+                metadata: mergedMetadata
+            });
         }
         return rules;
     }
@@ -147,23 +175,26 @@ export class RuleScanner {
     private async scanAntigravityRules(rootPath: string): Promise<Rule[]> {
         const rules: Rule[] = [];
         const rulesDir = path.join(rootPath, '.agent', 'rules');
-        if (fs.existsSync(rulesDir)) {
-            const files = fs.readdirSync(rulesDir).filter(f => f.endsWith('.md'));
-            for (const file of files) {
-                const filePath = path.join(rulesDir, file);
-                const rawContent = fs.readFileSync(filePath, 'utf-8');
-                const { content, metadata } = this.parseFrontmatter(rawContent);
-                rules.push({
-                    id: `antigravity-${file}`,
-                    name: file.replace('.md', ''),
-                    ide: 'antigravity',
-                    category: 'rules',
-                    filePath,
-                    content,
-                    rawContent,
-                    metadata
-                });
-            }
+        const files = await this.findFilesInDir(rulesDir, '.md', rulesDir);
+
+        for (const filePath of files) {
+            const rawContent = fs.readFileSync(filePath, 'utf-8');
+            const { content, metadata } = this.parseFrontmatter(rawContent);
+
+            const relativePath = path.relative(rulesDir, filePath);
+            const ruleName = relativePath.replace('.md', '').replace(/\\/g, '/');
+            const ruleId = `antigravity-${ruleName}`;
+
+            rules.push({
+                id: ruleId,
+                name: ruleName,
+                ide: 'antigravity',
+                category: 'rules',
+                filePath,
+                content,
+                rawContent,
+                metadata
+            });
         }
         return rules;
     }
