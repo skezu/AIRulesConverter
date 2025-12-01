@@ -40,21 +40,13 @@ This extension contributes the following settings:
 
 ## Release Notes
 
-### 1.0.1
--   Icon update.
-
-### 1.0.0
--   Production release.
-
-### 0.0.3
--   Added extension icon and README documentation.
-
-### 0.0.2
--   Added support for deleting rules.
--   Improved rule detection and refresh logic.
-
-### 0.0.1
--   Initial release with basic conversion support.
+| Version | Changes |
+|---|---|
+| 1.0.1 | Icon update. |
+| 1.0.0 | Production release. |
+| 0.0.3 | Added extension icon and README documentation. |
+| 0.0.2 | Added support for deleting rules.<br>Improved rule detection and refresh logic. |
+| 0.0.1 | Initial release with basic conversion support. |
 
 ---
 
