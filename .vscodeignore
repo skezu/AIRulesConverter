@@ -1,0 +1,14 @@
+.vscode/**
+.vscode-test/**
+src/**
+.gitignore
+.git/**
+.gitattributes
+esbuild.js
+tsconfig.json
+node_modules/**
+!out/extension.js
+!images/**
+!package.json
+!README.md
+!LICENSE

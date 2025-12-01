@@ -1,4 +1,37 @@
 /.agent
 /node_modules
 /out
-/rules-converter-0.0.1.vsix
+*.vsix
+DEPLOYMENT.md
+
+package-lock.json
+
+# EditorConfig is awesome
+.editorconfig
+
+# Visual Studio Code
+.vscode/*
+
+# Local history
+.history
+
+# Log files
+*.log
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# CodeQL
+.codeql/*
+
+# npm
+package-lock.json
+
+# yarn
+yarn.lock
+
+# pnpm
+pnpm-lock.yaml
+
+
