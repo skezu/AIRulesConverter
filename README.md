@@ -42,6 +42,7 @@ This extension contributes the following settings:
 
 | Version | Changes |
 |---|---|
+| 1.1.0 | Recursive subfolder scanning. |
 | 1.0.1 | Icon update. |
 | 1.0.0 | Production release. |
 | 0.0.3 | Added extension icon and README documentation. |
