@@ -129,14 +129,14 @@ export class RulesTreeDataProvider implements vscode.TreeDataProvider<RuleTreeIt
         } else if (element.type === 'virtual-folder') {
             const ide = element.ide;
             const category = element.rule?.category; // Virtual folders don't have a rule, so this might be undefined.
-            const fullVirtualFolderPath = element.parentLabel ? `${element.parentLabel}/${element.label}` : element.label;
-            
+            // parentLabel stores the full path for virtual folders
+            const fullVirtualFolderPath = element.parentLabel;
+
             const filteredRules = this.rules.filter(r => {
                 const rulePath = r.name.replace(/\\/g, '/');
-                return r.ide === ide && 
-                       (category ? r.category === category : true) && 
-                       rulePath.startsWith(fullVirtualFolderPath + '/') &&
-                       rulePath.split('/').length > fullVirtualFolderPath.split('/').length;
+                return r.ide === ide &&
+                    (category ? r.category === category : true) &&
+                    rulePath.startsWith(fullVirtualFolderPath + '/');
             });
             return this.getNodesForRules(filteredRules, fullVirtualFolderPath, ide, category);
         }

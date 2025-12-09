@@ -46,14 +46,19 @@ export class RuleScanner {
     private async scanCursorRules(rootPath: string): Promise<Rule[]> {
         const rules: Rule[] = [];
         const rulesDir = path.join(rootPath, '.cursor', 'rules');
-        const files = await this.findFilesInDir(rulesDir, '.mdc', rulesDir);
 
-        for (const filePath of files) {
+        // Scan for both .mdc and .md files (Cursor supports both formats)
+        const mdcFiles = await this.findFilesInDir(rulesDir, '.mdc', rulesDir);
+        const mdFiles = await this.findFilesInDir(rulesDir, '.md', rulesDir);
+        const allFiles = [...mdcFiles, ...mdFiles];
+
+        for (const filePath of allFiles) {
             const rawContent = fs.readFileSync(filePath, 'utf-8');
             const { content, metadata } = this.parseFrontmatter(rawContent);
 
             const relativePath = path.relative(rulesDir, filePath);
-            const ruleName = relativePath.replace('.mdc', '').replace(/\\/g, '/'); // Use '/' for rule names
+            // Remove both .mdc and .md extensions
+            const ruleName = relativePath.replace(/\.(mdc|md)$/, '').replace(/\\/g, '/'); // Use '/' for rule names
             const ruleId = `cursor-${ruleName}`;
 
             rules.push({
