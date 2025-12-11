@@ -49,6 +49,11 @@
         "title": "Convert Rule"
       },
       {
+        "command": "rulesConverter.convertAllRules",
+        "title": "Convert All Rules",
+        "icon": "$(arrow-swap)"
+      },
+      {
         "command": "rulesConverter.openRule",
         "title": "Open Rule"
       },
@@ -69,12 +74,22 @@
       "view/item/context": [
         {
           "command": "rulesConverter.convertRule",
-          "when": "view == detected-rules",
+          "when": "view == detected-rules && viewItem == rule",
+          "group": "inline"
+        },
+        {
+          "command": "rulesConverter.convertAllRules",
+          "when": "view == detected-rules && viewItem == virtual-folder",
+          "group": "inline"
+        },
+        {
+          "command": "rulesConverter.convertAllRules",
+          "when": "view == detected-rules && viewItem == ide",
           "group": "inline"
         },
         {
           "command": "rulesConverter.deleteRule",
-          "when": "view == detected-rules",
+          "when": "view == detected-rules && (viewItem == rule || viewItem == virtual-folder || viewItem == ide)",
           "group": "inline"
         }
       ]

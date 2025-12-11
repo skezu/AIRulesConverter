@@ -18,6 +18,10 @@ export class RulesTreeDataProvider implements vscode.TreeDataProvider<RuleTreeIt
         this._onDidChangeTreeData.fire();
     }
 
+    public getRules(): Rule[] {
+        return this.rules;
+    }
+
     getTreeItem(element: RuleTreeItem): vscode.TreeItem {
         return element;
     }

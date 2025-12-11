@@ -12,6 +12,7 @@ package-lock.json
 
 # Visual Studio Code
 .vscode/*
+*.code-workspace
 
 # Local history
 .history
@@ -35,4 +36,5 @@ yarn.lock
 # pnpm
 pnpm-lock.yaml
 
-
+# specific files
+TODO.md

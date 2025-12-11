@@ -7,7 +7,7 @@ import { Rule, IDE, RuleMetadata } from './RuleModel';
 export class RuleConverter {
     constructor() { }
 
-    public async convertRule(rule: Rule, targetIde: IDE): Promise<void> {
+    public async convertRule(rule: Rule, targetIde: IDE): Promise<string | undefined> {
         const workspaceFolder = vscode.workspace.getWorkspaceFolder(vscode.Uri.file(rule.filePath));
         if (!workspaceFolder) {
             vscode.window.showErrorMessage('Could not determine workspace folder for rule.');
@@ -69,8 +69,7 @@ export class RuleConverter {
             newContent = `---\n${frontmatter}---\n\n${rule.content}`;
 
             // Path
-            const fileName = path.basename(rule.filePath, path.extname(rule.filePath));
-            newPath = path.join(rootPath, '.cursor', 'rules', `${fileName}.mdc`);
+            newPath = path.join(rootPath, '.cursor', 'rules', `${rule.name}.mdc`);
 
         } else if (targetIde === 'windsurf' || targetIde === 'antigravity') {
             // Target: Windsurf OR Antigravity (Both use Frontmatter with triggers)
@@ -92,18 +91,17 @@ export class RuleConverter {
             const frontmatter = yaml.dump(targetMeta);
             newContent = `---\n${frontmatter}---\n\n${rule.content}`;
 
-            const fileName = path.basename(rule.filePath, path.extname(rule.filePath));
             const folder = targetIde === 'windsurf' ? '.windsurf' : '.agent';
-            newPath = path.join(rootPath, folder, 'rules', `${fileName}.md`);
+            newPath = path.join(rootPath, folder, 'rules', `${rule.name}.md`);
 
         } else if (targetIde === 'kiro') {
             // Target: Kiro (Steering vs Specs)
-            const fileName = path.basename(rule.filePath, path.extname(rule.filePath));
+            // Target: Kiro (Steering vs Specs)
 
             const kiroMeta: any = {};
             if (newMetadata.alwaysApply) {
                 kiroMeta.inclusion = 'always';
-                newPath = path.join(rootPath, '.kiro', 'steering', `${fileName}.md`);
+                newPath = path.join(rootPath, '.kiro', 'steering', `${rule.name}.md`);
             } else if (newMetadata.globs && newMetadata.globs.length > 0) {
                 kiroMeta.inclusion = 'fileMatch';
                 // User example showed a string for fileMatchPattern, but globs is array. 
@@ -115,10 +113,14 @@ export class RuleConverter {
                     kiroMeta.description = newMetadata.description;
                 }
 
-                newPath = path.join(rootPath, '.kiro', 'steering', `${fileName}.md`);
+                newPath = path.join(rootPath, '.kiro', 'steering', `${rule.name}.md`);
             } else {
                 kiroMeta.inclusion = 'manual';
-                newPath = path.join(rootPath, '.kiro', 'specs', 'converted', `${fileName}.md`);
+                // For specs, we might want to keep structure or put in 'converted' folder?
+                // The current requirement is just to conserve nested subfolders.
+                // Kiro specs are usually structured by folders anyway.
+                // Let's assume we map the structure directly into .kiro/specs
+                newPath = path.join(rootPath, '.kiro', 'specs', `${rule.name}.md`);
             }
 
             // Write frontmatter for Kiro too
@@ -131,6 +133,7 @@ export class RuleConverter {
             const dir = path.dirname(newPath);
             const ext = path.extname(newPath);
             const base = path.basename(newPath, ext);
+            // Construct a new filename that preserves the directory structure but appends _converted
             newPath = path.join(dir, `${base}_converted${ext}`);
         }
 
@@ -138,7 +141,12 @@ export class RuleConverter {
         fs.mkdirSync(path.dirname(newPath), { recursive: true });
 
         fs.writeFileSync(newPath, newContent, 'utf-8');
-        vscode.window.showInformationMessage(`Rule converted to ${targetIde}: ${path.basename(newPath)}`);
+        // Log to output channel instead of showing message for every single file if bulk converting?
+        // But for single file conversion, we want feedback.
+        // We will handle bulk conversion feedback in the command handler.
+        // For now, let's keep the message but maybe we can suppress it if we add an option?
+        // Simpler: Just make it return the path so caller can count/notify.
+        return newPath;
     }
 
     public async deleteRule(rule: Rule): Promise<void> {
