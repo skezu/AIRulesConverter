@@ -2,8 +2,6 @@
 
 **AI Rules Converter** is a VS Code extension designed to streamline the management of AI coding rules. It allows you to easily convert rule definitions between various AI-assisted IDE formats, ensuring your coding standards are consistent across different tools.
 
-![Logo](images/logo.png)
-
 ## Features
 
 -   **Multi-Format Support**: Convert rules between popular AI IDE formats:
