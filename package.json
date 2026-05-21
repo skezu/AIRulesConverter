@@ -2,9 +2,9 @@
   "name": "ai-rules-converter",
   "displayName": "AI Rules Converter",
   "publisher": "skezu",
-  "description": "Convert AI coding rules between Cursor, Windsurf, Kiro, and Antigravity formats.",
+  "description": "Convert AI coding rules between Cursor, Windsurf, Kiro, Antigravity, Claude Code, Gemini CLI, and GitHub Copilot formats. Also available as a standalone CLI.",
   "icon": "images/logo.png",
-  "version": "1.2.0",
+  "version": "1.5.0",
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -16,10 +16,30 @@
   "categories": [
     "Other"
   ],
+  "keywords": [
+    "cursor",
+    "windsurf",
+    "kiro",
+    "antigravity",
+    "claude",
+    "claude-code",
+    "gemini",
+    "gemini-cli",
+    "copilot",
+    "ai",
+    "rules",
+    "converter",
+    "CLAUDE.md",
+    "GEMINI.md",
+    "ai-rules"
+  ],
   "activationEvents": [
     "onStartupFinished"
   ],
   "main": "./out/extension.js",
+  "bin": {
+    "ai-rules-converter": "./out/cli.js"
+  },
   "contributes": {
     "viewsContainers": {
       "activitybar": [
@@ -61,12 +81,22 @@
         "command": "rulesConverter.deleteRule",
         "title": "Delete Rule",
         "icon": "$(trash)"
+      },
+      {
+        "command": "rulesConverter.migrateWorkspace",
+        "title": "Migrate Workspace Capabilities",
+        "icon": "$(sync)"
       }
     ],
     "menus": {
       "view/title": [
         {
           "command": "rulesConverter.refresh",
+          "when": "view == detected-rules",
+          "group": "navigation"
+        },
+        {
+          "command": "rulesConverter.migrateWorkspace",
           "when": "view == detected-rules",
           "group": "navigation"
         }
@@ -100,7 +130,8 @@
     "compile": "npm run build",
     "build": "node esbuild.js",
     "package": "node esbuild.js --production",
-    "watch": "node esbuild.js --watch"
+    "watch": "node esbuild.js --watch",
+    "cli": "node out/cli.js"
   },
   "devDependencies": {
     "@types/js-yaml": "^4.0.5",
