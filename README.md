@@ -102,7 +102,8 @@ Claude Code and Gemini CLI use a **single flat Markdown file** (`CLAUDE.md` / `G
 
 | Version | Changes |
 |---|---|
-| 1.5.0 | Added compact scan default view. Added `--detail` / `--verbose` (and short forms `-d` / `-v`) flags to show description and config details in `scan` and `scan-all`. Fully integrated the multi-IDE capability matrix across both CLI and VS Code extension UI. |
+| 1.5.1 | Added compact scan default view. Added `--detail` / `--verbose` (and short forms `-d` / `-v`) flags to show description and config details in `scan` and `scan-all`. |
+| 1.5.0 | Fully integrated the multi-IDE capability matrix (rules, skills directory, MCP configs, hooks) across both CLI and VS Code extension UI. |
 | 1.4.0 | Full Agentic Capabilities migration: Rules, Skills, MCP Servers, and Event Hooks. Supported new Go-based `agy` (Antigravity CLI) format. Windows directory junction creation support for symlinked skills. New commands `scan-all` and `migrate` (CLI & VS Code UI). |
 | 1.3.0 | Claude Code, Gemini CLI, GitHub Copilot support. Standalone CLI (`npx ai-rules-converter`). Platform-agnostic core refactor. |
 | 1.2.0 | Recursive folder actions (convert/delete) and root folder support. |

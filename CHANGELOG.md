@@ -5,11 +5,15 @@ All notable changes to the "AI Rules Converter" extension will be documented in 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [1.5.0] - 2026-05-21
+## [1.5.1] - 2026-05-21
 
 ### Added
 - **CLI Detail & Compact Option**: Added `--detail` option and aliases (`--verbose`, `-d`, `-v`) to `scan` and `scan-all` commands.
 - **Default Compact View**: Scan commands now default to a clean, compact overview (excluding rule descriptions, skills file details, MCP stdio commands/environments, and hook matcher rules) to maximize readability.
+
+## [1.5.0] - 2026-05-21
+
+### Added
 - **Unified Multi-IDE Capability Matrix**: Fully integrated native skills directory scanning/migration, Claude Code targeted rules (`.claude/rules/*.md`), and GitHub Copilot hooks (.github/hooks/*.json) across both the VS Code extension and the standalone CLI.
 
 ## [1.4.0] - 2026-05-21

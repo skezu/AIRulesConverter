@@ -144,7 +144,7 @@ function color(str: string, ...codes: string[]): string {
 
 function printHelp(): void {
     console.log(`
-${color('AI Rules Converter CLI', c.bold, c.cyan)}  v1.5.0
+${color('AI Rules Converter CLI', c.bold, c.cyan)}  v1.5.1
 
 ${color('Usage:', c.bold)}
   npx ai-rules-converter <command> [options]
