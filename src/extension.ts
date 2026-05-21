@@ -2,7 +2,28 @@ import * as vscode from 'vscode';
 import { RulesTreeDataProvider, RuleTreeItem } from './ui/RulesTreeDataProvider';
 import { Rule, IDE } from './core/RuleModel';
 import { RuleConverter } from './core/RuleConverter';
+import { MigrationOrchestrator } from './core/MigrationOrchestrator';
 import * as path from 'path';
+
+/** Human-readable labels for each format in QuickPick. */
+const FORMAT_ITEMS: { label: string; description: string; value: IDE }[] = [
+    { label: 'cursor',      description: '.cursor/rules/*.mdc',                      value: 'cursor' },
+    { label: 'windsurf',    description: '.windsurf/rules/*.md',                     value: 'windsurf' },
+    { label: 'kiro',        description: '.kiro/steering/*.md or .kiro/specs/*.md',  value: 'kiro' },
+    { label: 'antigravity', description: '.agent/rules/*.md',                        value: 'antigravity' },
+    { label: 'agy',         description: '.agents/rules/*.md (Antigravity CLI)',     value: 'agy' },
+    { label: 'claude-code', description: 'CLAUDE.md (sections per rule)',            value: 'claude-code' },
+    { label: 'gemini-cli',  description: 'GEMINI.md (sections per rule)',            value: 'gemini-cli' },
+    { label: 'copilot',     description: '.github/copilot-instructions.md or .github/instructions/', value: 'copilot' },
+];
+
+async function pickTargetFormat(): Promise<IDE | undefined> {
+    const picked = await vscode.window.showQuickPick(
+        FORMAT_ITEMS.map(f => ({ label: f.label, description: f.description, _value: f.value })),
+        { placeHolder: 'Select target format' }
+    );
+    return picked ? picked._value : undefined;
+}
 
 export function activate(context: vscode.ExtensionContext) {
     console.log('RulesConverter is now active!');
@@ -12,6 +33,7 @@ export function activate(context: vscode.ExtensionContext) {
 
     context.subscriptions.push(
         vscode.commands.registerCommand('rulesConverter.refresh', () => rulesProvider.refresh()),
+
         vscode.commands.registerCommand('rulesConverter.openRule', (rule: Rule) => {
             if (rule && rule.filePath) {
                 vscode.workspace.openTextDocument(rule.filePath).then(doc => {
@@ -19,6 +41,7 @@ export function activate(context: vscode.ExtensionContext) {
                 });
             }
         }),
+
         vscode.commands.registerCommand('rulesConverter.convertRule', async (item: Rule | RuleTreeItem) => {
             let rule: Rule | undefined;
             if (item instanceof RuleTreeItem) {
@@ -32,19 +55,18 @@ export function activate(context: vscode.ExtensionContext) {
                 return;
             }
 
-            const target = await vscode.window.showQuickPick(['cursor', 'windsurf', 'kiro', 'antigravity'], {
-                placeHolder: 'Select target IDE format'
-            });
+            const target = await pickTargetFormat();
 
             if (target) {
                 const converter = new RuleConverter();
-                const newPath = await converter.convertRule(rule, target as IDE);
+                const newPath = await converter.convertRule(rule, target, true);
                 if (newPath) {
                     vscode.window.showInformationMessage(`Rule converted to ${target}: ${path.basename(newPath)}`);
                 }
                 rulesProvider.refresh();
             }
         }),
+
         vscode.commands.registerCommand('rulesConverter.convertAllRules', async (item: RuleTreeItem) => {
             if (!item) {
                 return;
@@ -64,20 +86,15 @@ export function activate(context: vscode.ExtensionContext) {
                 return;
             }
 
-            const target = await vscode.window.showQuickPick(['cursor', 'windsurf', 'kiro', 'antigravity'], {
-                placeHolder: 'Select target IDE format for all rules'
-            });
+            const target = await pickTargetFormat();
 
             if (target) {
                 const rules = rulesProvider.getRules();
-                // If folderPath is empty, we convert all rules for that IDE
-
                 const rulesToConvert = rules.filter(r => {
                     if (r.ide !== sourceIde) {
                         return false;
                     }
                     if (folderPath) {
-                        // Check if rule is within the selected folder
                         return r.name.startsWith(folderPath + '/');
                     }
                     return true;
@@ -93,13 +110,16 @@ export function activate(context: vscode.ExtensionContext) {
 
                 await vscode.window.withProgress({
                     location: vscode.ProgressLocation.Notification,
-                    title: `Converting rules...`,
+                    title: `Converting ${rulesToConvert.length} rules to ${target}…`,
                     cancellable: false
                 }, async (progress) => {
                     const increment = 100 / rulesToConvert.length;
-                    for (const rule of rulesToConvert) {
-                        progress.report({ message: `Converting ${rule.name}...` });
-                        await converter.convertRule(rule, target as IDE);
+                    for (let i = 0; i < rulesToConvert.length; i++) {
+                        const rule = rulesToConvert[i];
+                        progress.report({ message: `Converting ${rule.name}…` });
+                        // isFirstInBatch=true only for the very first rule, so flat-file formats
+                        // (CLAUDE.md, GEMINI.md) are correctly truncated then appended.
+                        await converter.convertRule(rule, target, i === 0);
                         count++;
                         progress.report({ increment });
                     }
@@ -109,6 +129,7 @@ export function activate(context: vscode.ExtensionContext) {
                 rulesProvider.refresh();
             }
         }),
+
         vscode.commands.registerCommand('rulesConverter.deleteRule', async (item: Rule | RuleTreeItem) => {
             if (!item) {
                 return;
@@ -141,7 +162,6 @@ export function activate(context: vscode.ExtensionContext) {
                             return false;
                         }
                         if (folderPath) {
-                            // strictly starts with folderPath + '/'
                             return r.name.startsWith(folderPath + '/');
                         }
                         return true;
@@ -179,12 +199,12 @@ export function activate(context: vscode.ExtensionContext) {
                 let count = 0;
                 await vscode.window.withProgress({
                     location: vscode.ProgressLocation.Notification,
-                    title: `Deleting rules...`,
+                    title: `Deleting rules…`,
                     cancellable: false
                 }, async (progress) => {
                     const increment = 100 / rulesToDelete.length;
                     for (const rule of rulesToDelete) {
-                        progress.report({ message: `Deleting ${rule.name}...` });
+                        progress.report({ message: `Deleting ${rule.name}…` });
                         await converter.deleteRule(rule);
                         count++;
                         progress.report({ increment });
@@ -193,6 +213,99 @@ export function activate(context: vscode.ExtensionContext) {
                 vscode.window.showInformationMessage(`Deleted ${count} rules.`);
                 rulesProvider.refresh();
             }
+        }),
+
+        vscode.commands.registerCommand('rulesConverter.migrateWorkspace', async () => {
+            const source = await vscode.window.showQuickPick(
+                FORMAT_ITEMS.map(f => ({ label: f.label, description: f.description, _value: f.value })),
+                { placeHolder: 'Select source format to migrate FROM' }
+            );
+            if (!source) {
+                return;
+            }
+
+            const target = await vscode.window.showQuickPick(
+                FORMAT_ITEMS.map(f => ({ label: f.label, description: f.description, _value: f.value })),
+                { placeHolder: `Select target format to migrate ${source._value} TO` }
+            );
+            if (!target) {
+                return;
+            }
+
+            if (source._value === target._value) {
+                vscode.window.showErrorMessage('Source and target formats must be different.');
+                return;
+            }
+
+            const workspaceFolders = vscode.workspace.workspaceFolders;
+            if (!workspaceFolders || workspaceFolders.length === 0) {
+                vscode.window.showErrorMessage('No workspace folder is open.');
+                return;
+            }
+
+            let totalRules = 0;
+            let totalSkills = 0;
+            let mcpMigrated = false;
+            let hooksMigrated = false;
+            const errors: string[] = [];
+            const allWrittenPaths: string[] = [];
+
+            await vscode.window.withProgress({
+                location: vscode.ProgressLocation.Notification,
+                title: `Migrating capabilities from ${source._value} to ${target._value}…`,
+                cancellable: false
+            }, async (progress) => {
+                const orchestrator = new MigrationOrchestrator();
+                for (const folder of workspaceFolders) {
+                    const rootPath = folder.uri.fsPath;
+                    progress.report({ message: `Migrating folder: ${folder.name}…` });
+                    try {
+                        const report = await orchestrator.migrateAll(source._value, target._value, rootPath);
+                        totalRules += report.rulesMigratedCount;
+                        totalSkills += report.skillsMigratedCount;
+                        if (report.mcpMigrated) {
+                            mcpMigrated = true;
+                        }
+                        if (report.hooksMigrated) {
+                            hooksMigrated = true;
+                        }
+                        if (report.writtenPaths && report.writtenPaths.length > 0) {
+                            allWrittenPaths.push(...report.writtenPaths);
+                        }
+                        if (report.errors && report.errors.length > 0) {
+                            errors.push(...report.errors.map(err => `[${folder.name}] ${err}`));
+                        }
+                    } catch (e: any) {
+                        errors.push(`[${folder.name}] ${e.message || e}`);
+                    }
+                }
+            });
+
+            if (errors.length > 0) {
+                vscode.window.showWarningMessage(`Migration completed with errors:\n${errors.slice(0, 5).join('\n')}${errors.length > 5 ? '\n...' : ''}`);
+            }
+
+            const parts: string[] = [];
+            if (totalRules > 0) {
+                parts.push(`${totalRules} rule(s)`);
+            }
+            if (totalSkills > 0) {
+                parts.push(`${totalSkills} skill(s)`);
+            }
+            if (mcpMigrated) {
+                parts.push(`MCP configuration`);
+            }
+            if (hooksMigrated) {
+                parts.push(`Event hooks`);
+            }
+
+            if (parts.length > 0) {
+                vscode.window.showInformationMessage(`Successfully migrated: ${parts.join(', ')} to ${target._value}.`);
+            } else {
+                vscode.window.showInformationMessage(`No capabilities found to migrate from ${source._value} to ${target._value}.`);
+            }
+
+            rulesProvider.refresh();
         })
     );
 }

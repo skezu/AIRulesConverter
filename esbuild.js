@@ -4,7 +4,8 @@ const production = process.argv.includes('--production');
 const watch = process.argv.includes('--watch');
 
 async function main() {
-    const ctx = await esbuild.context({
+    // --- VS Code Extension bundle ---
+    const extCtx = await esbuild.context({
         entryPoints: ['src/extension.ts'],
         bundle: true,
         format: 'cjs',
@@ -17,11 +18,33 @@ async function main() {
         logLevel: 'info',
     });
 
+    // --- Standalone CLI bundle ---
+    const cliCtx = await esbuild.context({
+        entryPoints: ['src/cli/index.ts'],
+        bundle: true,
+        format: 'cjs',
+        minify: production,
+        sourcemap: !production,
+        sourcesContent: false,
+        platform: 'node',
+        outfile: 'out/cli.js',
+        // Mark vscode as external — the CLI never calls scanWorkspace() so this
+        // dynamic require() in RuleScanner is never actually executed at runtime.
+        external: ['vscode'],
+        logLevel: 'info',
+        banner: {
+            js: '#!/usr/bin/env node',
+        },
+    });
+
     if (watch) {
-        await ctx.watch();
+        await extCtx.watch();
+        await cliCtx.watch();
     } else {
-        await ctx.rebuild();
-        await ctx.dispose();
+        await extCtx.rebuild();
+        await extCtx.dispose();
+        await cliCtx.rebuild();
+        await cliCtx.dispose();
     }
 }
 

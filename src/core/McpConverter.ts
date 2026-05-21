@@ -1,0 +1,124 @@
+/**
+ * McpConverter.ts
+ *
+ * Converts MCP configurations between different formats, translating remote URLs
+ * and merging server definitions into target files.
+ */
+
+import * as path from 'path';
+import * as fs from 'fs';
+import { McpConfig, McpServer } from './AgentCapability';
+import { IDE } from './RuleModel';
+
+export interface McpConversionResult {
+    targetIde: IDE;
+    filePath: string;
+    /** Converted servers dictionary */
+    servers: Record<string, McpServer>;
+}
+
+export class McpConverter {
+    constructor() {}
+
+    /**
+     * Convert MCP configuration to target format.
+     */
+    public convertConfig(
+        config: McpConfig,
+        targetIde: IDE,
+        rootPath: string
+    ): McpConversionResult {
+        const filePath = this.getTargetFilePath(targetIde, rootPath);
+        const convertedServers: Record<string, McpServer> = {};
+
+        for (const [name, server] of Object.entries(config.servers)) {
+            convertedServers[name] = this.convertServer(server, targetIde);
+        }
+
+        return {
+            targetIde,
+            filePath,
+            servers: convertedServers,
+        };
+    }
+
+    /**
+     * Execute the conversion (read target, merge, write target).
+     */
+    public executeConversion(result: McpConversionResult): string {
+        const { targetIde, filePath, servers } = result;
+
+        // Ensure parent directory exists
+        fs.mkdirSync(path.dirname(filePath), { recursive: true });
+
+        let existingContent: any = {};
+        if (fs.existsSync(filePath)) {
+            try {
+                const raw = fs.readFileSync(filePath, 'utf-8');
+                existingContent = JSON.parse(raw) || {};
+            } catch (e) {
+                console.warn(`[McpConverter] Could not parse existing config at ${filePath}, overwriting.`, e);
+            }
+        }
+
+        // Merge servers
+        if (targetIde === 'gemini-cli') {
+            // Embedded inside settings.json
+            const existingServers = existingContent.mcpServers || {};
+            existingContent.mcpServers = {
+                ...existingServers,
+                ...servers,
+            };
+        } else {
+            // Separate config wrapper { "mcpServers": { ... } }
+            const existingServers = existingContent.mcpServers || {};
+            existingContent.mcpServers = {
+                ...existingServers,
+                ...servers,
+            };
+        }
+
+        fs.writeFileSync(filePath, JSON.stringify(existingContent, null, 2) + '\n', 'utf-8');
+        return filePath;
+    }
+
+    private convertServer(server: McpServer, targetIde: IDE): McpServer {
+        const converted = { ...server } as any;
+
+        // agy and antigravity use 'serverUrl' instead of 'url' for remote servers
+        const isAntigravityTarget = targetIde === 'agy' || targetIde === 'antigravity';
+
+        if (isAntigravityTarget) {
+            if ('url' in converted && !('serverUrl' in converted)) {
+                converted.serverUrl = converted.url;
+                delete converted.url;
+            }
+        } else {
+            if ('serverUrl' in converted && !('url' in converted)) {
+                converted.url = converted.serverUrl;
+                delete converted.serverUrl;
+            }
+        }
+
+        return converted as McpServer;
+    }
+
+    private getTargetFilePath(targetIde: IDE, rootPath: string): string {
+        switch (targetIde) {
+            case 'agy':
+                return path.join(rootPath, '.agents', 'mcp_config.json');
+            case 'antigravity':
+                return path.join(rootPath, '.agent', 'mcp_config.json');
+            case 'claude-code':
+                return path.join(rootPath, '.mcp.json');
+            case 'cursor':
+                return path.join(rootPath, '.cursor', 'mcp.json');
+            case 'windsurf':
+                return path.join(rootPath, '.windsurf', 'mcp_config.json');
+            case 'gemini-cli':
+                return path.join(rootPath, '.gemini', 'settings.json');
+            default:
+                throw new Error(`MCP configuration is not supported for target: ${targetIde}`);
+        }
+    }
+}
