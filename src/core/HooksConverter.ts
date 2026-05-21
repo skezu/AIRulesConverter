@@ -135,7 +135,7 @@ export class HooksConverter {
     private getTargetFilePath(targetIde: IDE, rootPath: string): string {
         switch (targetIde) {
             case 'agy':
-                return path.join(rootPath, '.agents', 'hooks.json');
+                return path.join(rootPath, '.agent', 'hooks.json');
             case 'antigravity':
                 return path.join(rootPath, '.agent', 'hooks.json');
             case 'claude-code':

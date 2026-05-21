@@ -39,7 +39,7 @@ export class McpScanner {
 
         // Define search targets
         const targets: { ide: IDE; relativePath: string; extractKey?: string }[] = [
-            { ide: 'agy', relativePath: path.join('.agents', 'mcp_config.json') },
+            { ide: 'agy', relativePath: path.join('.agent', 'mcp_config.json') },
             { ide: 'antigravity', relativePath: path.join('.agent', 'mcp_config.json') },
             { ide: 'claude-code', relativePath: '.mcp.json' },
             { ide: 'cursor', relativePath: path.join('.cursor', 'mcp.json') },

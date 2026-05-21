@@ -4,7 +4,7 @@
   "publisher": "skezu",
   "description": "Convert AI coding rules between Cursor, Windsurf, Kiro, Antigravity, Claude Code, Gemini CLI, and GitHub Copilot formats. Also available as a standalone CLI.",
   "icon": "images/logo.png",
-  "version": "1.5.1",
+  "version": "1.5.2",
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -66,7 +66,8 @@
       },
       {
         "command": "rulesConverter.convertRule",
-        "title": "Convert Rule"
+        "title": "Convert",
+        "icon": "$(arrow-swap)"
       },
       {
         "command": "rulesConverter.convertAllRules",
@@ -79,7 +80,7 @@
       },
       {
         "command": "rulesConverter.deleteRule",
-        "title": "Delete Rule",
+        "title": "Delete",
         "icon": "$(trash)"
       },
       {
@@ -104,7 +105,7 @@
       "view/item/context": [
         {
           "command": "rulesConverter.convertRule",
-          "when": "view == detected-rules && viewItem == rule",
+          "when": "view == detected-rules && (viewItem == rule || viewItem == skill || viewItem == mcp)",
           "group": "inline"
         },
         {
@@ -119,7 +120,7 @@
         },
         {
           "command": "rulesConverter.deleteRule",
-          "when": "view == detected-rules && (viewItem == rule || viewItem == virtual-folder || viewItem == ide)",
+          "when": "view == detected-rules && (viewItem == rule || viewItem == skill || viewItem == mcp || viewItem == virtual-folder || viewItem == ide)",
           "group": "inline"
         }
       ]

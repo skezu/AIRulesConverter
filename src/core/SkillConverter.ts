@@ -28,7 +28,7 @@ export interface SkillConversionResult {
 }
 
 const IDE_DIR_MAP: Record<IDE, string> = {
-    'agy': '.agents',
+    'agy': '.agent',
     'antigravity': '.agent',
     'claude-code': '.claude',
     'cursor': '.cursor',
@@ -174,5 +174,9 @@ export class SkillConverter {
             }
         }
         fs.rmdirSync(folderPath);
+    }
+
+    public deleteSkill(skill: Skill): void {
+        this.deleteFolderRecursive(skill.folderPath);
     }
 }

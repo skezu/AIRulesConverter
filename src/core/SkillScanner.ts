@@ -2,7 +2,7 @@
  * SkillScanner.ts
  *
  * Scans the workspace for agent skills in Antigravity (.agent/skills)
- * and agy (.agents/skills) formats, with symlink awareness.
+ * and agy (.agent/skills) formats, with symlink awareness.
  */
 
 import * as path from 'path';
@@ -38,7 +38,7 @@ export class SkillScanner {
      */
     public async scanDirectory(rootPath: string): Promise<Skill[]> {
         const skills: Skill[] = [];
-        skills.push(...(await this.scanSkillsForIde(rootPath, 'agy', '.agents')));
+        skills.push(...(await this.scanSkillsForIde(rootPath, 'agy', '.agent')));
         skills.push(...(await this.scanSkillsForIde(rootPath, 'antigravity', '.agent')));
         skills.push(...(await this.scanSkillsForIde(rootPath, 'claude-code', '.claude')));
         skills.push(...(await this.scanSkillsForIde(rootPath, 'cursor', '.cursor')));

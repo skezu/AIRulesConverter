@@ -274,7 +274,7 @@ export class RuleScanner {
 
     private async scanAgyRules(rootPath: string): Promise<Rule[]> {
         const rules: Rule[] = [];
-        const rulesDir = path.join(rootPath, '.agents', 'rules');
+        const rulesDir = path.join(rootPath, '.agent', 'rules');
 
         let dirExists = false;
         try {

@@ -106,7 +106,7 @@ export class McpConverter {
     private getTargetFilePath(targetIde: IDE, rootPath: string): string {
         switch (targetIde) {
             case 'agy':
-                return path.join(rootPath, '.agents', 'mcp_config.json');
+                return path.join(rootPath, '.agent', 'mcp_config.json');
             case 'antigravity':
                 return path.join(rootPath, '.agent', 'mcp_config.json');
             case 'claude-code':

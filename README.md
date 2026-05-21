@@ -10,7 +10,7 @@
 | **Windsurf** | `.windsurf/rules/*.md` | `trigger: always_on\|glob\|model_decision\|manual` |
 | **Kiro** | `.kiro/steering/*.md`, `.kiro/specs/` | `inclusion: always\|fileMatch\|manual` |
 | **Antigravity (legacy)** | `.agent/rules/*.md` | `trigger: always_on\|glob\|model_decision\|manual` |
-| **Antigravity CLI (agy)** | `.agents/rules/*.md` | `trigger: always_on\|glob\|model_decision\|manual` |
+| **Antigravity CLI (agy)** | `.agent/rules/*.md` | `trigger: always_on\|glob\|model_decision\|manual` |
 | **Claude Code** | `CLAUDE.md`, `.claude/CLAUDE.md` | Flat markdown with `## Section` headings |
 | **Gemini CLI** | `GEMINI.md` | Flat markdown with `## Section` headings |
 | **GitHub Copilot** | `.github/copilot-instructions.md`, `.github/instructions/*.instructions.md` | `applyTo` glob frontmatter |

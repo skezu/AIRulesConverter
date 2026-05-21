@@ -76,7 +76,7 @@ function getAntigravityPath(rootPath: string, rule: Rule): string {
 }
 
 function getAgyPath(rootPath: string, rule: Rule): string {
-    return path.join(rootPath, '.agents', 'rules', `${rule.name}.md`);
+    return path.join(rootPath, '.agent', 'rules', `${rule.name}.md`);
 }
 
 function getKiroPath(rootPath: string, rule: Rule, norm: RuleMetadata): string {

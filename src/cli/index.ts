@@ -55,7 +55,7 @@ const SUPPORTED_FORMATS: { id: IDE; description: string; paths: string[] }[] = [
     {
         id: 'agy',
         description: 'Antigravity CLI (agy)',
-        paths: ['.agents/rules/*.md', '.agents/skills/', '.agents/mcp_config.json', '.agents/hooks.json'],
+        paths: ['.agent/rules/*.md', '.agent/skills/', '.agent/mcp_config.json', '.agent/hooks.json'],
     },
     {
         id: 'claude-code',

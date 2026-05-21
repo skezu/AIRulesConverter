@@ -37,8 +37,8 @@ export class HooksScanner {
     public async scanDirectory(rootPath: string): Promise<HooksConfig[]> {
         const configs: HooksConfig[] = [];
 
-        // 1. agy (.agents/hooks.json)
-        const agyPath = path.join(rootPath, '.agents', 'hooks.json');
+        // 1. agy (.agent/hooks.json)
+        const agyPath = path.join(rootPath, '.agent', 'hooks.json');
         if (fs.existsSync(agyPath)) {
             const config = this.parseAgyHooks(agyPath, 'agy');
             if (config) configs.push(config);

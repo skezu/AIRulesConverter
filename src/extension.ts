@@ -2,8 +2,11 @@ import * as vscode from 'vscode';
 import { RulesTreeDataProvider, RuleTreeItem } from './ui/RulesTreeDataProvider';
 import { Rule, IDE } from './core/RuleModel';
 import { RuleConverter } from './core/RuleConverter';
+import { SkillConverter } from './core/SkillConverter';
+import { McpConverter } from './core/McpConverter';
 import { MigrationOrchestrator } from './core/MigrationOrchestrator';
 import * as path from 'path';
+import * as fs from 'fs';
 
 /** Human-readable labels for each format in QuickPick. */
 const FORMAT_ITEMS: { label: string; description: string; value: IDE }[] = [
@@ -11,7 +14,7 @@ const FORMAT_ITEMS: { label: string; description: string; value: IDE }[] = [
     { label: 'windsurf',    description: '.windsurf/rules/*.md',                     value: 'windsurf' },
     { label: 'kiro',        description: '.kiro/steering/*.md or .kiro/specs/*.md',  value: 'kiro' },
     { label: 'antigravity', description: '.agent/rules/*.md',                        value: 'antigravity' },
-    { label: 'agy',         description: '.agents/rules/*.md (Antigravity CLI)',     value: 'agy' },
+    { label: 'agy',         description: '.agent/rules/*.md (Antigravity CLI)',     value: 'agy' },
     { label: 'claude-code', description: 'CLAUDE.md (sections per rule)',            value: 'claude-code' },
     { label: 'gemini-cli',  description: 'GEMINI.md (sections per rule)',            value: 'gemini-cli' },
     { label: 'copilot',     description: '.github/copilot-instructions.md or .github/instructions/', value: 'copilot' },
@@ -43,6 +46,69 @@ export function activate(context: vscode.ExtensionContext) {
         }),
 
         vscode.commands.registerCommand('rulesConverter.convertRule', async (item: Rule | RuleTreeItem) => {
+            if (item instanceof RuleTreeItem && item.type === 'skill' && item.skill) {
+                const skill = item.skill;
+                const target = await pickTargetFormat();
+                if (!target) return;
+
+                const workspaceFolder = vscode.workspace.getWorkspaceFolder(vscode.Uri.file(skill.skillFilePath));
+                if (!workspaceFolder) {
+                    vscode.window.showErrorMessage('Could not determine workspace folder for skill.');
+                    return;
+                }
+                const rootPath = workspaceFolder.uri.fsPath;
+
+                try {
+                    const skillConverter = new SkillConverter();
+                    const result = skillConverter.convertSkill(skill, target, rootPath);
+                    const writtenPath = skillConverter.executeConversion(result, true);
+                    vscode.window.showInformationMessage(`Skill converted to ${target}: ${path.basename(writtenPath)}`);
+                    rulesProvider.refresh();
+                } catch (e: any) {
+                    vscode.window.showErrorMessage(`Failed to convert skill: ${e.message || e}`);
+                }
+                return;
+            }
+
+            if (item instanceof RuleTreeItem && item.type === 'mcp' && item.mcpServer) {
+                const mcpServer = item.mcpServer;
+                const target = await pickTargetFormat();
+                if (!target) return;
+
+                const workspaceFolder = vscode.workspace.getWorkspaceFolder(vscode.Uri.file(mcpServer.filePath));
+                if (!workspaceFolder) {
+                    vscode.window.showErrorMessage('Could not determine workspace folder for MCP server.');
+                    return;
+                }
+                const rootPath = workspaceFolder.uri.fsPath;
+
+                const mcpSupportedTargets: IDE[] = ['agy', 'antigravity', 'claude-code', 'cursor', 'windsurf', 'gemini-cli'];
+                if (!mcpSupportedTargets.includes(target)) {
+                    vscode.window.showErrorMessage(`MCP configuration is not supported for target: ${target}`);
+                    return;
+                }
+
+                try {
+                    const mcpConverter = new McpConverter();
+                    const sourceIde = item.ide!;
+                    const tempConfig = {
+                        ide: sourceIde,
+                        filePath: mcpServer.filePath,
+                        servers: {
+                            [mcpServer.name]: mcpServer.config
+                        },
+                        scope: 'project' as const
+                    };
+                    const result = mcpConverter.convertConfig(tempConfig, target, rootPath);
+                    const writtenPath = mcpConverter.executeConversion(result);
+                    vscode.window.showInformationMessage(`MCP Server '${mcpServer.name}' converted to ${target}: ${path.basename(writtenPath)}`);
+                    rulesProvider.refresh();
+                } catch (e: any) {
+                    vscode.window.showErrorMessage(`Failed to convert MCP server: ${e.message || e}`);
+                }
+                return;
+            }
+
             let rule: Rule | undefined;
             if (item instanceof RuleTreeItem) {
                 rule = item.rule;
@@ -132,6 +198,58 @@ export function activate(context: vscode.ExtensionContext) {
 
         vscode.commands.registerCommand('rulesConverter.deleteRule', async (item: Rule | RuleTreeItem) => {
             if (!item) {
+                return;
+            }
+
+            if (item instanceof RuleTreeItem && item.type === 'skill' && item.skill) {
+                const skill = item.skill;
+                const confirm = await vscode.window.showWarningMessage(
+                    `Are you sure you want to delete the skill '${skill.name}'? This will delete the folder '${skill.folderPath}' recursively.`,
+                    { modal: true },
+                    'Delete'
+                );
+
+                if (confirm === 'Delete') {
+                    try {
+                        const skillConverter = new SkillConverter();
+                        skillConverter.deleteSkill(skill);
+                        vscode.window.showInformationMessage(`Skill '${skill.name}' deleted.`);
+                        rulesProvider.refresh();
+                    } catch (e: any) {
+                        vscode.window.showErrorMessage(`Failed to delete skill: ${e.message || e}`);
+                    }
+                }
+                return;
+            }
+
+            if (item instanceof RuleTreeItem && item.type === 'mcp' && item.mcpServer) {
+                const mcpServer = item.mcpServer;
+                const confirm = await vscode.window.showWarningMessage(
+                    `Are you sure you want to delete the MCP server '${mcpServer.name}' from ${item.ide} config?`,
+                    { modal: true },
+                    'Delete'
+                );
+
+                if (confirm === 'Delete') {
+                    try {
+                        if (fs.existsSync(mcpServer.filePath)) {
+                            const raw = fs.readFileSync(mcpServer.filePath, 'utf-8');
+                            const content = JSON.parse(raw);
+                            if (content && content.mcpServers && content.mcpServers[mcpServer.name]) {
+                                delete content.mcpServers[mcpServer.name];
+                                fs.writeFileSync(mcpServer.filePath, JSON.stringify(content, null, 2) + '\n', 'utf-8');
+                                vscode.window.showInformationMessage(`MCP server '${mcpServer.name}' deleted.`);
+                                rulesProvider.refresh();
+                            } else {
+                                vscode.window.showErrorMessage(`MCP server '${mcpServer.name}' not found in configuration file.`);
+                            }
+                        } else {
+                            vscode.window.showErrorMessage(`MCP config file not found: ${mcpServer.filePath}`);
+                        }
+                    } catch (e: any) {
+                        vscode.window.showErrorMessage(`Failed to delete MCP server: ${e.message || e}`);
+                    }
+                }
                 return;
             }
 

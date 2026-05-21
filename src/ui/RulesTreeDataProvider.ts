@@ -228,6 +228,7 @@ export class RulesTreeDataProvider implements vscode.TreeDataProvider<RuleTreeIt
                         { filePath: skill.skillFilePath } as any
                     );
                     item.description = skill.description;
+                    item.skill = skill;
                     return item;
                 });
             } else if (groupName === 'MCP Servers') {
@@ -244,6 +245,11 @@ export class RulesTreeDataProvider implements vscode.TreeDataProvider<RuleTreeIt
                             { filePath: ideMcp.filePath } as any
                         );
                         item.description = `(${typeLabel})`;
+                        item.mcpServer = {
+                            name: serverName,
+                            config: server,
+                            filePath: ideMcp.filePath
+                        };
                         return item;
                     });
                 }
@@ -286,6 +292,9 @@ export class RulesTreeDataProvider implements vscode.TreeDataProvider<RuleTreeIt
 }
 
 export class RuleTreeItem extends vscode.TreeItem {
+    public skill?: Skill;
+    public mcpServer?: { name: string; config: McpServer; filePath: string };
+
     constructor(
         public readonly label: string,
         public readonly collapsibleState: vscode.TreeItemCollapsibleState,
