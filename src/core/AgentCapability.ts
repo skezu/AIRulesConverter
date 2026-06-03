@@ -116,7 +116,8 @@ export type HookEvent =
     | 'SessionStart'
     | 'Stop'
     | 'Notification'
-    | 'PermissionRequest';
+    | 'PermissionRequest'
+    | 'UserPromptSubmit';
 
 export interface HooksConfig {
     ide: IDE;
@@ -133,4 +134,38 @@ export interface HooksConfig {
      * (Antigravity / agy) — the group name is stored here.
      */
     groupName?: string;
+}
+
+// ---------------------------------------------------------------------------
+// Claude Plugins
+// ---------------------------------------------------------------------------
+
+export interface PluginHookCommand {
+    type: string;
+    command?: string;
+    timeout?: number;
+    statusMessage?: string;
+    [key: string]: any;
+}
+
+export interface PluginHookEntry {
+    hooks: PluginHookCommand[];
+    matcher?: string;
+}
+
+export interface ClaudePlugin {
+    /** Plugin identifier (directory name under marketplaces/) */
+    name: string;
+    description: string;
+    author?: { name: string; url?: string };
+    /** Absolute path to the plugin root folder */
+    pluginDir: string;
+    /** Absolute path to .claude-plugin/plugin.json */
+    manifestPath: string;
+    /** Skills found inside the plugin dir */
+    skills: Skill[];
+    /** Hooks from plugin.json "hooks" key, keyed by HookEvent */
+    hooks: Partial<Record<HookEvent, PluginHookEntry[]>>;
+    /** Raw plugin.json content */
+    rawManifest: Record<string, any>;
 }

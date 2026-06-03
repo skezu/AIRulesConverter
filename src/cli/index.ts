@@ -19,6 +19,7 @@
 
 import * as path from 'path';
 import * as fs from 'fs';
+import * as os from 'os';
 import { RuleScanner } from '../core/RuleScanner';
 import { SkillScanner } from '../core/SkillScanner';
 import { McpScanner } from '../core/McpScanner';
@@ -26,6 +27,9 @@ import { HooksScanner } from '../core/HooksScanner';
 import { MigrationOrchestrator } from '../core/MigrationOrchestrator';
 import { convertRuleToResult, writeConversionResult } from '../core/RuleConverterCore';
 import { IDE } from '../core/RuleModel';
+import { getGlobalRoot, getPluginsDir } from '../core/GlobalPathResolver';
+import { PluginScanner } from '../core/PluginScanner';
+import { PluginConverter } from '../core/PluginConverter';
 
 // ---------------------------------------------------------------------------
 // Supported formats
@@ -144,36 +148,47 @@ function color(str: string, ...codes: string[]): string {
 
 function printHelp(): void {
     console.log(`
-${color('AI Rules Converter CLI', c.bold, c.cyan)}  v1.5.1
+${color('AI Rules Converter CLI', c.bold, c.cyan)}  v1.5.2
 
 ${color('Usage:', c.bold)}
   npx ai-rules-converter <command> [options]
 
 ${color('Commands:', c.bold)}
-  ${color('scan', c.green)}         List detected rules in the workspace
-  ${color('scan-all', c.green)}     List all detected capabilities (rules, skills, MCP, hooks)
-  ${color('convert', c.green)}      Convert rules from one format to another
-  ${color('migrate', c.green)}      Migrate ALL capabilities from one format to another
-  ${color('list-formats', c.green)} Show all supported formats
+  ${color('scan', c.green)}            List detected rules in the workspace
+  ${color('scan-all', c.green)}        List all detected capabilities (rules, skills, MCP, hooks)
+  ${color('convert', c.green)}         Convert rules from one format to another
+  ${color('migrate', c.green)}         Migrate ALL capabilities from one format to another
+  ${color('scan-plugins', c.green)}    List installed Claude Code marketplace plugins
+  ${color('convert-plugin', c.green)}  Convert a Claude plugin's assets to another IDE format
+  ${color('list-formats', c.green)}    Show all supported formats
 
 ${color('Options:', c.bold)}
-  --root <path>    Workspace root directory (default: current directory)
-  --from <format>  Source format for conversion/migration
-  --to   <format>  Target format for conversion/migration
-  --format <fmt>   Filter by format (for scan command)
-  --detail, -d     Show details (e.g. descriptions, files, commands) in scan commands
-  --verbose, -v    Show details (alias for --detail)
-  --dry-run        Print what would be written without writing any files
+  --root <path>        Workspace root directory (default: current directory)
+  --from <format>      Source format for conversion/migration
+  --to   <format>      Target format for conversion/migration
+  --format <fmt>       Filter by format (for scan command)
+  --global, -g         Scan/convert global (user-level) configs under $HOME
+  --detail, -d         Show details (e.g. descriptions, files, commands) in scan commands
+  --verbose, -v        Show details (alias for --detail)
+  --dry-run            Print what would be written without writing any files
+  --plugin <name>      Plugin name for convert-plugin command
+  --plugins-dir <dir>  Override Claude plugins directory (default: ~/.claude/plugins/marketplaces)
 
 ${color('Supported formats:', c.bold)}
 ${SUPPORTED_FORMATS.map(f => `  ${color(f.id.padEnd(14), c.yellow)} ${color(f.description, c.dim)}`).join('\n')}
 
 ${color('Examples:', c.bold)}
   npx ai-rules-converter scan
+  npx ai-rules-converter scan --global
   npx ai-rules-converter scan-all
   npx ai-rules-converter convert --from cursor --to claude-code
+  npx ai-rules-converter convert --from cursor --to claude-code --global
   npx ai-rules-converter migrate --from antigravity --to agy
   npx ai-rules-converter migrate --from antigravity --to agy --root ./my-project
+  npx ai-rules-converter scan-plugins
+  npx ai-rules-converter scan-plugins --detail
+  npx ai-rules-converter convert-plugin --plugin caveman --to cursor
+  npx ai-rules-converter convert-plugin --plugin caveman --to windsurf --root ./my-project
 `);
 }
 
@@ -189,7 +204,8 @@ function cmdListFormats(): void {
 }
 
 async function cmdScan(args: Record<string, string | boolean>): Promise<void> {
-    const rootPath = path.resolve(String(args['root'] ?? '.'));
+    const isGlobal = Boolean(args['global'] || args['g']);
+    const rootPath = isGlobal ? getGlobalRoot() : path.resolve(String(args['root'] ?? '.'));
     const formatFilter = args['format'] ? String(args['format']) : undefined;
     const isDetail = isDetailView(args);
 
@@ -198,7 +214,8 @@ async function cmdScan(args: Record<string, string | boolean>): Promise<void> {
         process.exit(1);
     }
 
-    console.log(`\n${color('Scanning', c.bold)} ${color(rootPath, c.cyan)}\n`);
+    const scopeLabel = isGlobal ? color(' [global]', c.magenta) : '';
+    console.log(`\n${color('Scanning', c.bold)} ${color(rootPath, c.cyan)}${scopeLabel}\n`);
 
     const scanner = new RuleScanner();
     let rules = await scanner.scanDirectory(rootPath);
@@ -247,7 +264,8 @@ async function cmdScan(args: Record<string, string | boolean>): Promise<void> {
 }
 
 async function cmdConvert(args: Record<string, string | boolean>): Promise<void> {
-    const rootPath = path.resolve(String(args['root'] ?? '.'));
+    const isGlobal = Boolean(args['global'] || args['g']);
+    const rootPath = isGlobal ? getGlobalRoot() : path.resolve(String(args['root'] ?? '.'));
     const fromFmt = String(args['from'] ?? '');
     const toFmt   = String(args['to']   ?? '');
     const dryRun  = Boolean(args['dry-run']);
@@ -312,7 +330,8 @@ async function cmdConvert(args: Record<string, string | boolean>): Promise<void>
 }
 
 async function cmdScanAll(args: Record<string, string | boolean>): Promise<void> {
-    const rootPath = path.resolve(String(args['root'] ?? '.'));
+    const isGlobal = Boolean(args['global'] || args['g']);
+    const rootPath = isGlobal ? getGlobalRoot() : path.resolve(String(args['root'] ?? '.'));
     const isDetail = isDetailView(args);
 
     if (!fs.existsSync(rootPath)) {
@@ -320,7 +339,8 @@ async function cmdScanAll(args: Record<string, string | boolean>): Promise<void>
         process.exit(1);
     }
 
-    console.log(`\n${color('Scanning All Capabilities in', c.bold)} ${color(rootPath, c.cyan)}\n`);
+    const scopeLabel = isGlobal ? color(' [global]', c.magenta) : '';
+    console.log(`\n${color('Scanning All Capabilities in', c.bold)} ${color(rootPath, c.cyan)}${scopeLabel}\n`);
 
     const ruleScanner = new RuleScanner();
     const rules = await ruleScanner.scanDirectory(rootPath);
@@ -436,7 +456,8 @@ async function cmdScanAll(args: Record<string, string | boolean>): Promise<void>
 }
 
 async function cmdMigrate(args: Record<string, string | boolean>): Promise<void> {
-    const rootPath = path.resolve(String(args['root'] ?? '.'));
+    const isGlobal = Boolean(args['global'] || args['g']);
+    const rootPath = isGlobal ? getGlobalRoot() : path.resolve(String(args['root'] ?? '.'));
     const fromFmt = String(args['from'] ?? '');
     const toFmt   = String(args['to']   ?? '');
     const dryRun  = Boolean(args['dry-run']);
@@ -510,6 +531,119 @@ async function cmdMigrate(args: Record<string, string | boolean>): Promise<void>
     }
 }
 
+async function cmdScanPlugins(args: Record<string, string | boolean>): Promise<void> {
+    const pluginsDir = args['plugins-dir']
+        ? path.resolve(String(args['plugins-dir']))
+        : getPluginsDir();
+    const isDetail = isDetailView(args);
+
+    console.log(`\n${color('Scanning Claude Plugins in', c.bold)} ${color(pluginsDir, c.cyan)}\n`);
+
+    if (!fs.existsSync(pluginsDir)) {
+        console.log(color('No plugins directory found.', c.dim));
+        return;
+    }
+
+    const scanner = new PluginScanner();
+    const plugins = await scanner.scanPlugins(pluginsDir);
+
+    if (plugins.length === 0) {
+        console.log(color('No plugins found.', c.dim));
+        return;
+    }
+
+    for (const plugin of plugins) {
+        console.log(`${color(plugin.name, c.bold, c.blue)}  ${color(plugin.description, c.dim)}`);
+        if (plugin.author) {
+            console.log(`  ${color('Author:', c.dim)} ${plugin.author.name}`);
+        }
+        if (plugin.skills.length > 0) {
+            console.log(`  ${color('Skills:', c.yellow)} ${plugin.skills.length}`);
+            if (isDetail) {
+                for (const skill of plugin.skills) {
+                    console.log(`    ${color('◆', c.cyan)} ${skill.name}`);
+                }
+            }
+        }
+        const hookCount = Object.keys(plugin.hooks).length;
+        if (hookCount > 0) {
+            console.log(`  ${color('Hook events:', c.yellow)} ${hookCount}`);
+            if (isDetail) {
+                for (const event of Object.keys(plugin.hooks)) {
+                    console.log(`    ${color('◆', c.cyan)} ${event}`);
+                }
+            }
+        }
+        console.log();
+    }
+    console.log(color(`Total: ${plugins.length} plugin(s)`, c.bold));
+}
+
+async function cmdConvertPlugin(args: Record<string, string | boolean>): Promise<void> {
+    const pluginName = String(args['plugin'] ?? '');
+    const toFmt = String(args['to'] ?? '');
+    const rootPath = path.resolve(String(args['root'] ?? '.'));
+    const pluginsDir = args['plugins-dir']
+        ? path.resolve(String(args['plugins-dir']))
+        : getPluginsDir();
+    const dryRun = Boolean(args['dry-run']);
+
+    if (!pluginName) {
+        console.error(color('Error: --plugin <name> is required.', c.red));
+        process.exit(1);
+    }
+    if (!toFmt || !isValidIDE(toFmt)) {
+        console.error(color(`Error: --to must be a valid format. Got: '${toFmt}'`, c.red));
+        console.error(`Run 'npx ai-rules-converter list-formats' to see available formats.`);
+        process.exit(1);
+    }
+
+    const pluginDir = path.join(pluginsDir, pluginName);
+    if (!fs.existsSync(pluginDir)) {
+        console.error(color(`Error: Plugin '${pluginName}' not found at ${pluginDir}`, c.red));
+        process.exit(1);
+    }
+
+    console.log(`\n${color('Converting Plugin', c.bold)} ${color(pluginName, c.yellow)} → ${color(toFmt, c.green)}  ${color(dryRun ? '[DRY RUN]' : '', c.magenta)}`);
+    console.log(`${color('Root:', c.dim)} ${rootPath}\n`);
+
+    const scanner = new PluginScanner();
+    const plugins = await scanner.scanPlugins(pluginsDir);
+    const plugin = plugins.find(p => p.name === pluginName);
+
+    if (!plugin) {
+        console.error(color(`Error: Could not parse plugin '${pluginName}'.`, c.red));
+        process.exit(1);
+    }
+
+    if (dryRun) {
+        const hookCount = Object.keys(plugin.hooks).length;
+        console.log(`  ${color('[DRY RUN]', c.magenta)} Would convert:`);
+        console.log(`    ${color('Skills:', c.yellow)} ${plugin.skills.length}`);
+        console.log(`    ${color('Hook events:', c.yellow)} ${hookCount}`);
+        return;
+    }
+
+    const converter = new PluginConverter();
+    const report = await converter.convertPlugin(plugin, toFmt as IDE, rootPath);
+
+    if (report.errors.length > 0) {
+        console.error(color(`\nWarnings/Errors:`, c.yellow));
+        for (const err of report.errors) {
+            console.error(`  ${color('✗', c.red)} ${err}`);
+        }
+    }
+
+    console.log(`\n${color('Done:', c.bold)} ${color(String(report.skillsConverted), c.green)} skill(s), ${color(String(report.rulesConverted), c.green)} rule(s), hooks: ${color(report.hooksMigrated ? 'yes' : 'no', report.hooksMigrated ? c.green : c.dim)}`);
+
+    if (report.writtenPaths.length > 0) {
+        console.log(`\n${color('Written files:', c.dim)}`);
+        for (const wp of report.writtenPaths) {
+            console.log(`  ${color('✓', c.green)} ${path.relative(rootPath, wp)}`);
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Entry point
 // ---------------------------------------------------------------------------
@@ -537,6 +671,12 @@ async function main(): Promise<void> {
             break;
         case 'migrate':
             await cmdMigrate(args);
+            break;
+        case 'scan-plugins':
+            await cmdScanPlugins(args);
+            break;
+        case 'convert-plugin':
+            await cmdConvertPlugin(args);
             break;
         case 'list-formats':
             cmdListFormats();

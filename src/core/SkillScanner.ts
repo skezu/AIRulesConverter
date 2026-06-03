@@ -38,20 +38,29 @@ export class SkillScanner {
      */
     public async scanDirectory(rootPath: string): Promise<Skill[]> {
         const skills: Skill[] = [];
-        skills.push(...(await this.scanSkillsForIde(rootPath, 'agy', '.agent')));
-        skills.push(...(await this.scanSkillsForIde(rootPath, 'antigravity', '.agent')));
-        skills.push(...(await this.scanSkillsForIde(rootPath, 'claude-code', '.claude')));
-        skills.push(...(await this.scanSkillsForIde(rootPath, 'cursor', '.cursor')));
-        skills.push(...(await this.scanSkillsForIde(rootPath, 'windsurf', '.windsurf')));
-        skills.push(...(await this.scanSkillsForIde(rootPath, 'kiro', '.kiro')));
-        skills.push(...(await this.scanSkillsForIde(rootPath, 'gemini-cli', '.gemini')));
-        skills.push(...(await this.scanSkillsForIde(rootPath, 'copilot', '.github')));
+        // agy / antigravity: three distinct locations
+        //   workspace : {root}/.agents/skill/
+        //   global    : {root}/.gemini/antigravity-cli/skills/
+        //   shared    : {root}/.gemini/skills/  (shared with gemini-cli)
+        skills.push(...(await this.scanSkillsForIde(rootPath, 'agy',         path.join('.agents', 'skill'))));
+        skills.push(...(await this.scanSkillsForIde(rootPath, 'antigravity', path.join('.agents', 'skill'))));
+        skills.push(...(await this.scanSkillsForIde(rootPath, 'agy',         path.join('.gemini', 'antigravity-cli', 'skills'))));
+        skills.push(...(await this.scanSkillsForIde(rootPath, 'antigravity', path.join('.gemini', 'antigravity-cli', 'skills'))));
+        skills.push(...(await this.scanSkillsForIde(rootPath, 'agy',         path.join('.gemini', 'skills'))));
+        skills.push(...(await this.scanSkillsForIde(rootPath, 'antigravity', path.join('.gemini', 'skills'))));
+        // other IDEs
+        skills.push(...(await this.scanSkillsForIde(rootPath, 'claude-code', path.join('.claude',  'skills'))));
+        skills.push(...(await this.scanSkillsForIde(rootPath, 'cursor',      path.join('.cursor',  'skills'))));
+        skills.push(...(await this.scanSkillsForIde(rootPath, 'windsurf',    path.join('.windsurf','skills'))));
+        skills.push(...(await this.scanSkillsForIde(rootPath, 'kiro',        path.join('.kiro',    'skills'))));
+        skills.push(...(await this.scanSkillsForIde(rootPath, 'gemini-cli',  path.join('.gemini',  'skills'))));
+        skills.push(...(await this.scanSkillsForIde(rootPath, 'copilot',     path.join('.github',  'skills'))));
         return skills;
     }
 
-    private async scanSkillsForIde(rootPath: string, ide: IDE, agentDirName: string): Promise<Skill[]> {
+    private async scanSkillsForIde(rootPath: string, ide: IDE, skillsRelPath: string): Promise<Skill[]> {
         const skills: Skill[] = [];
-        const skillsDir = path.join(rootPath, agentDirName, 'skills');
+        const skillsDir = path.join(rootPath, skillsRelPath);
 
         // Check if skills directory exists (or is a symlink pointing to an existing directory)
         if (!this.directoryExistsFollowSymlinks(skillsDir)) {

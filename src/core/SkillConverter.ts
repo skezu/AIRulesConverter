@@ -27,15 +27,16 @@ export interface SkillConversionResult {
     };
 }
 
-const IDE_DIR_MAP: Record<IDE, string> = {
-    'agy': '.agent',
-    'antigravity': '.agent',
-    'claude-code': '.claude',
-    'cursor': '.cursor',
-    'windsurf': '.windsurf',
-    'kiro': '.kiro',
-    'gemini-cli': '.gemini',
-    'copilot': '.github'
+// Maps each IDE to the relative path of its skills directory (no trailing slash).
+const IDE_SKILLS_DIR_MAP: Record<IDE, string> = {
+    'agy':         path.join('.agents', 'skill'),
+    'antigravity': path.join('.agents', 'skill'),
+    'claude-code': path.join('.claude',  'skills'),
+    'cursor':      path.join('.cursor',  'skills'),
+    'windsurf':    path.join('.windsurf','skills'),
+    'kiro':        path.join('.kiro',    'skills'),
+    'gemini-cli':  path.join('.gemini',  'skills'),
+    'copilot':     path.join('.github',  'skills'),
 };
 
 export class SkillConverter {
@@ -49,12 +50,12 @@ export class SkillConverter {
         targetIde: IDE,
         rootPath: string
     ): SkillConversionResult {
-        const destDir = IDE_DIR_MAP[targetIde];
-        if (!destDir) {
+        const skillsDir = IDE_SKILLS_DIR_MAP[targetIde];
+        if (!skillsDir) {
             throw new Error(`Unknown target format for skill conversion: ${targetIde}`);
         }
 
-        const targetFolderPath = path.join(rootPath, destDir, 'skills', skill.folderName);
+        const targetFolderPath = path.join(rootPath, skillsDir, skill.folderName);
 
         return {
             skillName: skill.folderName,
