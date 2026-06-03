@@ -4,7 +4,7 @@
   "publisher": "skezu",
   "description": "Convert AI coding rules between Cursor, Windsurf, Kiro, Antigravity, Claude Code, Gemini CLI, and GitHub Copilot formats. Also available as a standalone CLI.",
   "icon": "images/logo.png",
-  "version": "1.5.2",
+  "version": "1.6.0",
   "license": "MIT",
   "repository": {
     "type": "git",

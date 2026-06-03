@@ -5,6 +5,17 @@ All notable changes to the "AI Rules Converter" extension will be documented in 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.0] - 2026-06-03
+
+### Added
+- **Global Configuration Scanning**: Added `--global` flag on `scan`, `scan-all`, `convert`, and `migrate` commands to scan user-level configs from the home directory instead of the project root.
+- **Claude Plugin Integration**: Added `scan-plugins` command to list installed Claude marketplace plugins with their skills and hook events.
+- **Claude Plugin Conversion**: Added `convert-plugin` command to convert a plugin's skills, rules, and hooks to any target IDE format (automatically replacing `${CLAUDE_PLUGIN_ROOT}` in hook commands for portability).
+- **Hook Events Support**: Added support for the `UserPromptSubmit` hook event.
+
+### Changed
+- **agy Path Corrections**: Updated paths for global (`.gemini/antigravity-cli/skills/`) and shared (`.gemini/skills/`) skills inside agy/antigravity configuration.
+
 ## [1.5.2] - 2026-05-21
 
 ### Fixed
