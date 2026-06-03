@@ -1,0 +1,14 @@
+.git
+.github
+.vscode
+.agent
+.claude
+.cursor
+.windsurf
+.kiro
+src
+tsconfig.json
+esbuild.js
+*.vsix
+package-lock.json
+images/logo-old.png
