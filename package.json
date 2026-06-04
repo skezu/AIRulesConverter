@@ -1,10 +1,10 @@
 {
-  "name": "ai-rules-converter",
-  "displayName": "AI Rules Converter",
+  "name": "aix",
+  "displayName": "aix",
   "publisher": "skezu",
   "description": "Convert AI coding rules between Cursor, Windsurf, Kiro, Antigravity, Claude Code, Gemini CLI, and GitHub Copilot formats. Also available as a standalone CLI.",
   "icon": "images/logo.png",
-  "version": "1.6.0",
+  "version": "1.7.0",
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -38,7 +38,7 @@
   ],
   "main": "./out/extension.js",
   "bin": {
-    "ai-rules-converter": "./out/cli.js"
+    "aix": "./out/cli.js"
   },
   "contributes": {
     "viewsContainers": {

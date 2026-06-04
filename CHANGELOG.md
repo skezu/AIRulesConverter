@@ -1,9 +1,15 @@
 # Changelog
 
-All notable changes to the "AI Rules Converter" extension will be documented in this file.
+All notable changes to the **aix** extension will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [1.7.0] - 2026-06-05
+
+### Changed
+- **Rebranded to aix**: Renamed the extension and CLI binary from `ai-rules-converter` to `aix` for streamlined CLI commands (`npx aix`).
+- **Config Output Alignment**: Aligned rule and capability config output with official tool syntax.
 
 ## [1.6.0] - 2026-06-03
 
@@ -53,7 +59,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Claude Code support**: Detect and convert to/from `CLAUDE.md` and `.claude/CLAUDE.md`. Rules are stored as `## Heading` sections in the flat file and split automatically when scanning.
 - **Gemini CLI support**: Detect and convert to/from `GEMINI.md`. Same flat-file section approach as Claude Code.
 - **GitHub Copilot support**: Detect and convert to/from `.github/copilot-instructions.md` (global) and `.github/instructions/*.instructions.md` (targeted rules with `applyTo` frontmatter).
-- **Standalone CLI tool**: Run `npx ai-rules-converter` from any terminal without VS Code. Supports `scan`, `convert`, and `list-formats` commands with `--dry-run` support.
+- **Standalone CLI tool**: Run `npx aix` from any terminal without VS Code. Supports `scan`, `convert`, and `list-formats` commands with `--dry-run` support.
 - **Platform-agnostic core** (`RuleConverterCore.ts`): Extraction of pure conversion logic — no VS Code API dependencies — enabling CLI usage.
 - **Improved tree view**: IDE nodes now only appear if rules are detected; each has a unique icon and human-readable label.
 

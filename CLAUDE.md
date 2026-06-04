@@ -1,4 +1,4 @@
-# AI Rules Converter
+# aix
 
 VS Code extension + standalone CLI that converts AI coding rules between Cursor, Windsurf, Kiro, Antigravity/agy, Claude Code, Gemini CLI, and GitHub Copilot formats.
 
