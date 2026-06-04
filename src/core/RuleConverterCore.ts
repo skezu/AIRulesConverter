@@ -9,6 +9,7 @@ import * as path from 'path';
 import * as fs from 'fs';
 import * as yaml from 'js-yaml';
 import { Rule, IDE, RuleMetadata } from './RuleModel';
+import { getGlobalRulesTarget } from './GlobalPathResolver';
 
 export interface ConversionResult {
     /** Absolute path to the file that was (or would be) written. */
@@ -53,6 +54,9 @@ function normaliseMetadata(rule: Rule): RuleMetadata {
             m.globs = Array.isArray(m.fileMatchPattern)
                 ? m.fileMatchPattern
                 : [m.fileMatchPattern as string];
+        } else if (m.paths) {
+            // Claude Code targeted rules express globs under `paths`.
+            m.globs = Array.isArray(m.paths) ? m.paths : [m.paths as string];
         }
     }
 
@@ -72,11 +76,12 @@ function getWindsurfPath(rootPath: string, rule: Rule): string {
 }
 
 function getAntigravityPath(rootPath: string, rule: Rule): string {
-    return path.join(rootPath, '.agent', 'rules', `${rule.name}.md`);
+    // Preferred plural workspace path; the singular '.agent/' is deprecated.
+    return path.join(rootPath, '.agents', 'rules', `${rule.name}.md`);
 }
 
 function getAgyPath(rootPath: string, rule: Rule): string {
-    return path.join(rootPath, '.agent', 'rules', `${rule.name}.md`);
+    return path.join(rootPath, '.agents', 'rules', `${rule.name}.md`);
 }
 
 function getKiroPath(rootPath: string, rule: Rule, norm: RuleMetadata): string {
@@ -177,6 +182,24 @@ function buildFlatFileSection(rule: Rule): string {
     return `## ${title}\n\n${rule.content.trim()}\n`;
 }
 
+/**
+ * Claude Code targeted rule (`.claude/rules/*.md`). Official frontmatter uses the
+ * `paths` field (globs) — NOT Cursor's `alwaysApply`/`globs`/`description`, which
+ * Claude Code ignores. Omitting `paths` would load the rule unconditionally, so a
+ * globbed rule must serialise its globs under `paths`.
+ */
+function buildClaudeCodeRuleContent(rule: Rule, norm: RuleMetadata): string {
+    const claudeMeta: any = {};
+    if (norm.globs && norm.globs.length > 0) {
+        claudeMeta.paths = norm.globs;
+    }
+    if (norm.description) {
+        claudeMeta.description = norm.description;
+    }
+    const frontmatter = yaml.dump(claudeMeta);
+    return `---\n${frontmatter}---\n\n${rule.content}`;
+}
+
 function buildCopilotContent(rule: Rule, norm: RuleMetadata): string {
     if (norm.alwaysApply || !norm.globs || norm.globs.length === 0) {
         // Global instructions — no frontmatter, just markdown
@@ -216,9 +239,30 @@ function avoidOverwrite(filePath: string): string {
 export function convertRuleToResult(
     rule: Rule,
     targetIde: IDE,
-    rootPath: string
+    rootPath: string,
+    scope: 'project' | 'global' = 'project'
 ): ConversionResult {
     const norm = normaliseMetadata(rule);
+
+    // Global (user-level) rules live at IDE-specific paths that are NOT a simple
+    // homedir swap of the project layout — resolve them from the official table.
+    if (scope === 'global') {
+        const target = getGlobalRulesTarget(targetIde);
+        if (!target) {
+            throw new Error(`Global rules are not supported for target: ${targetIde} (user rules are UI-managed or unsupported).`);
+        }
+        if (target.type === 'flat') {
+            // Single concatenated instructions file → append as `## {title}` sections.
+            return { filePath: target.path, content: buildFlatFileSection(rule), appendMode: true };
+        }
+        // Directory layout (e.g. Kiro steering): one file per rule.
+        return {
+            filePath: avoidOverwrite(path.join(target.path, `${rule.name}.md`)),
+            content: buildKiroContent(rule, norm),
+            appendMode: false,
+        };
+    }
+
     let content = '';
     let filePath = '';
     let appendMode = false;
@@ -255,7 +299,7 @@ export function convertRuleToResult(
                 filePath = getClaudeCodePath(rootPath);
                 appendMode = true; // multiple rules → same file
             } else {
-                content = buildCursorContent(rule, norm);
+                content = buildClaudeCodeRuleContent(rule, norm);
                 filePath = avoidOverwrite(path.join(rootPath, '.claude', 'rules', `${rule.name}.md`));
                 appendMode = false;
             }

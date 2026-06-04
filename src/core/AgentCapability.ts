@@ -169,3 +169,40 @@ export interface ClaudePlugin {
     /** Raw plugin.json content */
     rawManifest: Record<string, any>;
 }
+
+// ---------------------------------------------------------------------------
+// Plugin bundles (format-agnostic — used for plugin <-> plugin migration)
+// ---------------------------------------------------------------------------
+
+/** The two plugin ecosystems we can migrate a bundle between. */
+export type PluginFormat = 'claude-code' | 'antigravity';
+
+/**
+ * A normalised plugin, loaded from either a Claude Code plugin
+ * (`<dir>/.claude-plugin/plugin.json`, inline hooks) or an Antigravity plugin
+ * (`<dir>/plugin.json` + `hooks.json` + `mcp_config.json`). A writer renders it
+ * back out into either format's native layout.
+ */
+export interface PluginBundle {
+    name: string;
+    description: string;
+    author?: { name: string; url?: string };
+    /** Format this bundle was loaded from. */
+    sourceFormat: PluginFormat;
+    /** Absolute path to the source plugin root folder. */
+    sourceDir: string;
+    /** Raw source manifest object (plugin.json). */
+    rawManifest: Record<string, any>;
+    /** Normalised hook events (canonical Claude-style event names). */
+    hooks: Partial<Record<HookEvent, HookEntry[]>>;
+    /** MCP servers map (name -> server config). */
+    mcpServers: Record<string, McpServer>;
+    /** Absolute source folder paths for each skill (each contains SKILL.md); written to target `skills/<basename>/`. */
+    skillDirs: string[];
+    /** Absolute path to the source `agents/` dir, if present (copied to target `agents/`). */
+    agentsDir?: string;
+    /** Absolute path to the source `rules/` dir, if present (copied to target `rules/`). */
+    rulesDir?: string;
+    /** Other top-level support dirs to copy verbatim (e.g. hooks/, scripts/, commands/) — absolute paths; basename preserved. */
+    supportDirs: string[];
+}

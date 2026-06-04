@@ -42,7 +42,8 @@ export class MigrationOrchestrator {
     public async migrateAll(
         fromIde: IDE,
         toIde: IDE,
-        rootPath: string
+        rootPath: string,
+        scope: 'project' | 'global' = 'project'
     ): Promise<MigrationReport> {
         const report: MigrationReport = {
             rulesMigratedCount: 0,
@@ -66,7 +67,7 @@ export class MigrationOrchestrator {
             for (let i = 0; i < sourceRules.length; i++) {
                 const rule = sourceRules[i];
                 try {
-                    const result = convertRuleToResult(rule, toIde, rootPath);
+                    const result = convertRuleToResult(rule, toIde, rootPath, scope);
                     const written = writeConversionResult(result, i === 0);
                     report.rulesMigratedCount++;
                     report.writtenPaths.push(written);
@@ -86,7 +87,7 @@ export class MigrationOrchestrator {
             for (let i = 0; i < sourceSkills.length; i++) {
                 const skill = sourceSkills[i];
                 try {
-                    const result = this.skillConverter.convertSkill(skill, toIde, rootPath);
+                    const result = this.skillConverter.convertSkill(skill, toIde, rootPath, scope);
                     const written = this.skillConverter.executeConversion(result, i === 0);
                     report.skillsMigratedCount++;
                     report.writtenPaths.push(written);
@@ -107,7 +108,7 @@ export class MigrationOrchestrator {
 
                 if (sourceMcp) {
                     try {
-                        const result = this.mcpConverter.convertConfig(sourceMcp, toIde, rootPath);
+                        const result = this.mcpConverter.convertConfig(sourceMcp, toIde, rootPath, scope);
                         const written = this.mcpConverter.executeConversion(result);
                         report.mcpMigrated = true;
                         report.writtenPaths.push(written);
@@ -129,7 +130,7 @@ export class MigrationOrchestrator {
 
                 if (sourceHooks) {
                     try {
-                        const result = this.hooksConverter.convertConfig(sourceHooks, toIde, rootPath);
+                        const result = this.hooksConverter.convertConfig(sourceHooks, toIde, rootPath, scope);
                         const written = this.hooksConverter.executeConversion(result);
                         report.hooksMigrated = true;
                         report.writtenPaths.push(written);

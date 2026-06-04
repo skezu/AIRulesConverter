@@ -38,12 +38,18 @@ export class SkillScanner {
      */
     public async scanDirectory(rootPath: string): Promise<Skill[]> {
         const skills: Skill[] = [];
-        // agy / antigravity: three distinct locations
-        //   workspace : {root}/.agents/skill/
-        //   global    : {root}/.gemini/antigravity-cli/skills/
-        //   shared    : {root}/.gemini/skills/  (shared with gemini-cli)
-        skills.push(...(await this.scanSkillsForIde(rootPath, 'agy',         path.join('.agents', 'skill'))));
-        skills.push(...(await this.scanSkillsForIde(rootPath, 'antigravity', path.join('.agents', 'skill'))));
+        // Tracks deprecated physical directories already warned about (dedupe across IDE ids).
+        const warnedDeprecatedDirs = new Set<string>();
+        // agy / antigravity: distinct locations
+        //   workspace preferred  : {root}/.agents/skills/
+        //   workspace deprecated : {root}/.agent/skills/   (singular — still scanned, warns)
+        //   global               : {root}/.gemini/antigravity-cli/skills/
+        //   shared               : {root}/.gemini/skills/  (shared with gemini-cli)
+        skills.push(...(await this.scanSkillsForIde(rootPath, 'agy',         path.join('.agents', 'skills'))));
+        skills.push(...(await this.scanSkillsForIde(rootPath, 'antigravity', path.join('.agents', 'skills'))));
+        // Deprecated workspace location (singular '.agent'). Warn only when skills are actually found.
+        skills.push(...(await this.scanDeprecatedAgentSkills(rootPath, 'agy', warnedDeprecatedDirs)));
+        skills.push(...(await this.scanDeprecatedAgentSkills(rootPath, 'antigravity', warnedDeprecatedDirs)));
         skills.push(...(await this.scanSkillsForIde(rootPath, 'agy',         path.join('.gemini', 'antigravity-cli', 'skills'))));
         skills.push(...(await this.scanSkillsForIde(rootPath, 'antigravity', path.join('.gemini', 'antigravity-cli', 'skills'))));
         skills.push(...(await this.scanSkillsForIde(rootPath, 'agy',         path.join('.gemini', 'skills'))));
@@ -55,6 +61,24 @@ export class SkillScanner {
         skills.push(...(await this.scanSkillsForIde(rootPath, 'kiro',        path.join('.kiro',    'skills'))));
         skills.push(...(await this.scanSkillsForIde(rootPath, 'gemini-cli',  path.join('.gemini',  'skills'))));
         skills.push(...(await this.scanSkillsForIde(rootPath, 'copilot',     path.join('.github',  'skills'))));
+        return skills;
+    }
+
+    /**
+     * Scan the DEPRECATED singular '.agent/skills' workspace location.
+     * Emits exactly one deprecation warning per physical deprecated directory that
+     * actually yields skills (deduped across IDE ids via warnedDeprecatedDirs).
+     */
+    private async scanDeprecatedAgentSkills(rootPath: string, ide: IDE, warnedDeprecatedDirs: Set<string>): Promise<Skill[]> {
+        const skillsRelPath = path.join('.agent', 'skills');
+        const skills = await this.scanSkillsForIde(rootPath, ide, skillsRelPath);
+        if (skills.length > 0) {
+            const skillsDir = path.join(rootPath, skillsRelPath);
+            if (!warnedDeprecatedDirs.has(skillsDir)) {
+                warnedDeprecatedDirs.add(skillsDir);
+                console.warn(`[SkillScanner] '.agent/skills' is deprecated; please migrate to '.agents/skills'`);
+            }
+        }
         return skills;
     }
 

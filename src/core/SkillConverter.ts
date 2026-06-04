@@ -9,6 +9,7 @@ import * as fs from 'fs';
 import { Skill } from './AgentCapability';
 import { Rule, IDE } from './RuleModel';
 import { convertRuleToResult, writeConversionResult } from './RuleConverterCore';
+import { getGlobalSkillsDir } from './GlobalPathResolver';
 
 export interface SkillConversionResult {
     skillName: string;
@@ -29,8 +30,8 @@ export interface SkillConversionResult {
 
 // Maps each IDE to the relative path of its skills directory (no trailing slash).
 const IDE_SKILLS_DIR_MAP: Record<IDE, string> = {
-    'agy':         path.join('.agents', 'skill'),
-    'antigravity': path.join('.agents', 'skill'),
+    'agy':         path.join('.agents', 'skills'),
+    'antigravity': path.join('.agents', 'skills'),
     'claude-code': path.join('.claude',  'skills'),
     'cursor':      path.join('.cursor',  'skills'),
     'windsurf':    path.join('.windsurf','skills'),
@@ -48,14 +49,23 @@ export class SkillConverter {
     public convertSkill(
         skill: Skill,
         targetIde: IDE,
-        rootPath: string
+        rootPath: string,
+        scope: 'project' | 'global' = 'project'
     ): SkillConversionResult {
-        const skillsDir = IDE_SKILLS_DIR_MAP[targetIde];
-        if (!skillsDir) {
-            throw new Error(`Unknown target format for skill conversion: ${targetIde}`);
+        let targetFolderPath: string;
+        if (scope === 'global') {
+            const globalSkillsDir = getGlobalSkillsDir(targetIde);
+            if (!globalSkillsDir) {
+                throw new Error(`Global skills are not supported for target: ${targetIde}`);
+            }
+            targetFolderPath = path.join(globalSkillsDir, skill.folderName);
+        } else {
+            const skillsDir = IDE_SKILLS_DIR_MAP[targetIde];
+            if (!skillsDir) {
+                throw new Error(`Unknown target format for skill conversion: ${targetIde}`);
+            }
+            targetFolderPath = path.join(rootPath, skillsDir, skill.folderName);
         }
-
-        const targetFolderPath = path.join(rootPath, skillsDir, skill.folderName);
 
         return {
             skillName: skill.folderName,

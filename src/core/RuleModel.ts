@@ -10,6 +10,8 @@ export interface RuleMetadata {
     fileMatchPattern?: string | string[];
     // Antigravity / Windsurf / agy specific
     trigger?: 'always_on' | 'manual' | 'model_decision' | 'glob';
+    // Claude Code targeted-rule frontmatter (.claude/rules/*.md) — globs live under `paths`
+    paths?: string[];
     // GitHub Copilot specific
     applyTo?: string;
     // Flat-file CLI formats (Claude Code, Gemini CLI) — the section heading used

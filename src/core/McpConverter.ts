@@ -9,6 +9,7 @@ import * as path from 'path';
 import * as fs from 'fs';
 import { McpConfig, McpServer } from './AgentCapability';
 import { IDE } from './RuleModel';
+import { getGlobalMcpConfigPath } from './GlobalPathResolver';
 
 export interface McpConversionResult {
     targetIde: IDE;
@@ -26,9 +27,10 @@ export class McpConverter {
     public convertConfig(
         config: McpConfig,
         targetIde: IDE,
-        rootPath: string
+        rootPath: string,
+        scope: 'project' | 'global' = 'project'
     ): McpConversionResult {
-        const filePath = this.getTargetFilePath(targetIde, rootPath);
+        const filePath = this.getTargetFilePath(targetIde, rootPath, scope);
         const convertedServers: Record<string, McpServer> = {};
 
         for (const [name, server] of Object.entries(config.servers)) {
@@ -85,10 +87,19 @@ export class McpConverter {
     private convertServer(server: McpServer, targetIde: IDE): McpServer {
         const converted = { ...server } as any;
 
-        // agy and antigravity use 'serverUrl' instead of 'url' for remote servers
-        const isAntigravityTarget = targetIde === 'agy' || targetIde === 'antigravity';
+        // Canonicalise Gemini's HTTP field (`httpUrl`) back to `url` first, so the
+        // remote-URL field rewrites below operate on a single source of truth.
+        if ('httpUrl' in converted && !('url' in converted)) {
+            converted.url = converted.httpUrl;
+            delete converted.httpUrl;
+        }
 
-        if (isAntigravityTarget) {
+        // Antigravity, agy AND Windsurf use 'serverUrl' instead of 'url' for remote servers.
+        // (Windsurf docs: remote MCP servers are declared with `serverUrl`/`headers`.)
+        const usesServerUrl =
+            targetIde === 'agy' || targetIde === 'antigravity' || targetIde === 'windsurf';
+
+        if (usesServerUrl) {
             if ('url' in converted && !('serverUrl' in converted)) {
                 converted.serverUrl = converted.url;
                 delete converted.url;
@@ -100,15 +111,34 @@ export class McpConverter {
             }
         }
 
+        // Gemini CLI distinguishes HTTP/streamable servers (`httpUrl`) from SSE (`url`).
+        // Map remote HTTP servers onto `httpUrl`; SSE/unknown remotes keep `url`.
+        if (targetIde === 'gemini-cli') {
+            const type = String(converted.type ?? '').toLowerCase();
+            const isHttp = type === 'http' || type === 'streamable-http';
+            if (isHttp && 'url' in converted && !('httpUrl' in converted)) {
+                converted.httpUrl = converted.url;
+                delete converted.url;
+            }
+        }
+
         return converted as McpServer;
     }
 
-    private getTargetFilePath(targetIde: IDE, rootPath: string): string {
+    private getTargetFilePath(targetIde: IDE, rootPath: string, scope: 'project' | 'global' = 'project'): string {
+        if (scope === 'global') {
+            const globalPath = getGlobalMcpConfigPath(targetIde);
+            if (globalPath) {
+                return globalPath;
+            }
+            throw new Error(`MCP global configuration is not supported for target: ${targetIde}`);
+        }
         switch (targetIde) {
             case 'agy':
-                return path.join(rootPath, '.agent', 'mcp_config.json');
+                // Preferred plural workspace path; the singular '.agent/' is deprecated.
+                return path.join(rootPath, '.agents', 'mcp_config.json');
             case 'antigravity':
-                return path.join(rootPath, '.agent', 'mcp_config.json');
+                return path.join(rootPath, '.agents', 'mcp_config.json');
             case 'claude-code':
                 return path.join(rootPath, '.mcp.json');
             case 'cursor':

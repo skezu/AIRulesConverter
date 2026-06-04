@@ -233,84 +233,63 @@ export class RuleScanner {
     }
 
     private async scanAntigravityRules(rootPath: string): Promise<Rule[]> {
-        const rules: Rule[] = [];
-        const rulesDir = path.join(rootPath, '.agent', 'rules');
-
-        let dirExists = false;
-        try {
-            dirExists = fs.existsSync(rulesDir) && fs.statSync(rulesDir).isDirectory();
-        } catch {}
-        if (!dirExists) {
-            return rules;
-        }
-
-        const files = await this.findFilesInDir(rulesDir, '.md', rulesDir);
-
-        for (const filePath of files) {
-            const rawContent = fs.readFileSync(filePath, 'utf-8');
-            const { content, metadata } = this.parseFrontmatter(rawContent);
-
-            const relativePath = path.relative(rulesDir, filePath);
-            const ruleName = relativePath.replace('.md', '').replace(/\\/g, '/');
-            const ruleId = `antigravity-${ruleName}`;
-
-            const symlinkInfo = this.getSymlinkInfo(filePath, rootPath);
-
-            rules.push({
-                id: ruleId,
-                name: ruleName,
-                ide: 'antigravity',
-                category: 'rules',
-                filePath,
-                content,
-                rawContent,
-                metadata,
-                isSymlinked: symlinkInfo.isSymlinked,
-                realPath: symlinkInfo.realPath
-            });
-        }
-        return rules;
+        return this.scanAgentRules(rootPath, 'antigravity');
     }
 
     private async scanAgyRules(rootPath: string): Promise<Rule[]> {
+        return this.scanAgentRules(rootPath, 'agy');
+    }
+
+    /**
+     * Scan Antigravity/agy workspace rules. Reads the preferred plural
+     * `.agents/rules/` and the deprecated singular `.agent/rules/` (warns once).
+     */
+    private async scanAgentRules(rootPath: string, ide: 'antigravity' | 'agy'): Promise<Rule[]> {
         const rules: Rule[] = [];
-        const rulesDir = path.join(rootPath, '.agent', 'rules');
+        const candidates: { dir: string; deprecated: boolean }[] = [
+            { dir: path.join(rootPath, '.agents', 'rules'), deprecated: false },
+            { dir: path.join(rootPath, '.agent', 'rules'), deprecated: true },
+        ];
 
-        let dirExists = false;
-        try {
-            dirExists = fs.existsSync(rulesDir) && fs.statSync(rulesDir).isDirectory();
-        } catch {}
-        if (!dirExists) {
-            return rules;
-        }
-
-        const files = await this.findFilesInDir(rulesDir, '.md', rulesDir);
-
-        for (const filePath of files) {
+        for (const { dir, deprecated } of candidates) {
+            let dirExists = false;
             try {
-                const rawContent = fs.readFileSync(filePath, 'utf-8');
-                const { content, metadata } = this.parseFrontmatter(rawContent);
+                dirExists = fs.existsSync(dir) && fs.statSync(dir).isDirectory();
+            } catch {}
+            if (!dirExists) {
+                continue;
+            }
+            if (deprecated) {
+                console.warn(`[RuleScanner] '.agent/rules/' is deprecated; please migrate to '.agents/rules/'`);
+            }
 
-                const relativePath = path.relative(rulesDir, filePath);
-                const ruleName = relativePath.replace('.md', '').replace(/\\/g, '/');
-                const ruleId = `agy-${ruleName}`;
+            const files = await this.findFilesInDir(dir, '.md', dir);
+            for (const filePath of files) {
+                try {
+                    const rawContent = fs.readFileSync(filePath, 'utf-8');
+                    const { content, metadata } = this.parseFrontmatter(rawContent);
 
-                const symlinkInfo = this.getSymlinkInfo(filePath, rootPath);
+                    const relativePath = path.relative(dir, filePath);
+                    const ruleName = relativePath.replace('.md', '').replace(/\\/g, '/');
+                    const ruleId = `${ide}-${ruleName}`;
 
-                rules.push({
-                    id: ruleId,
-                    name: ruleName,
-                    ide: 'agy',
-                    category: 'rules',
-                    filePath,
-                    content,
-                    rawContent,
-                    metadata,
-                    isSymlinked: symlinkInfo.isSymlinked,
-                    realPath: symlinkInfo.realPath
-                });
-            } catch (e) {
-                console.error(`[RuleScanner] Error scanning agy rule at ${filePath}`, e);
+                    const symlinkInfo = this.getSymlinkInfo(filePath, rootPath);
+
+                    rules.push({
+                        id: ruleId,
+                        name: ruleName,
+                        ide,
+                        category: 'rules',
+                        filePath,
+                        content,
+                        rawContent,
+                        metadata,
+                        isSymlinked: symlinkInfo.isSymlinked,
+                        realPath: symlinkInfo.realPath
+                    });
+                } catch (e) {
+                    console.error(`[RuleScanner] Error scanning ${ide} rule at ${filePath}`, e);
+                }
             }
         }
         return rules;

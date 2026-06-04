@@ -37,11 +37,22 @@ export class McpScanner {
     public async scanDirectory(rootPath: string): Promise<McpConfig[]> {
         const configs: McpConfig[] = [];
 
-        // Define search targets
-        const targets: { ide: IDE; relativePath: string; extractKey?: string }[] = [
-            { ide: 'agy', relativePath: path.join('.agent', 'mcp_config.json') },
-            { ide: 'antigravity', relativePath: path.join('.agent', 'mcp_config.json') },
+        // Define search targets.
+        // agy / antigravity MCP locations:
+        //   workspace preferred  : .agents/mcp_config.json  (plural)
+        //   workspace deprecated : .agent/mcp_config.json   (singular — still scanned, warns)
+        //   global               : .gemini/antigravity/mcp_config.json  (no '-cli', per official docs)
+        const targets: { ide: IDE; relativePath: string; extractKey?: string; deprecated?: boolean }[] = [
+            { ide: 'agy', relativePath: path.join('.agents', 'mcp_config.json') },
+            { ide: 'antigravity', relativePath: path.join('.agents', 'mcp_config.json') },
+            { ide: 'agy', relativePath: path.join('.gemini', 'antigravity', 'mcp_config.json') },
+            { ide: 'antigravity', relativePath: path.join('.gemini', 'antigravity', 'mcp_config.json') },
+            { ide: 'agy', relativePath: path.join('.agent', 'mcp_config.json'), deprecated: true },
+            { ide: 'antigravity', relativePath: path.join('.agent', 'mcp_config.json'), deprecated: true },
             { ide: 'claude-code', relativePath: '.mcp.json' },
+            // Claude Code user/local MCP lives in ~/.claude.json (top-level `mcpServers`);
+            // scanned so `--global` discovers the official global location.
+            { ide: 'claude-code', relativePath: '.claude.json' },
             { ide: 'cursor', relativePath: path.join('.cursor', 'mcp.json') },
             { ide: 'windsurf', relativePath: path.join('.windsurf', 'mcp_config.json') },
             { ide: 'gemini-cli', relativePath: path.join('.gemini', 'settings.json'), extractKey: 'mcpServers' },
@@ -78,6 +89,9 @@ export class McpScanner {
                     }
 
                     if (Object.keys(servers).length > 0) {
+                        if (target.deprecated) {
+                            console.warn(`[McpScanner] '.agent/mcp_config.json' is deprecated; please migrate to '.agents/mcp_config.json'`);
+                        }
                         configs.push({
                             ide: target.ide,
                             filePath,

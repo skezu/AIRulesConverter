@@ -9,6 +9,21 @@ import * as fs from 'fs';
 import { HooksConfig, HookEvent, HookEntry } from './AgentCapability';
 import { IDE } from './RuleModel';
 
+/** Canonical Claude-style events the scanners recognise as hook-event keys. */
+const CANONICAL_EVENTS: HookEvent[] = [
+    'PreToolUse', 'PostToolUse', 'SessionStart', 'Stop',
+    'Notification', 'PermissionRequest', 'UserPromptSubmit',
+];
+
+/** Antigravity kebab-case lifecycle stage -> canonical event (best-effort reverse map). */
+const ANTIGRAVITY_STAGE_TO_CANONICAL: Record<string, HookEvent> = {
+    'before-tool-execution': 'PreToolUse',
+    'after-tool-execution': 'PostToolUse',
+    'before-model-call': 'UserPromptSubmit',
+    'after-model-call': 'PostToolUse',
+    'agent-loop-stop': 'Stop',
+};
+
 export class HooksScanner {
     constructor() {}
 
@@ -37,18 +52,26 @@ export class HooksScanner {
     public async scanDirectory(rootPath: string): Promise<HooksConfig[]> {
         const configs: HooksConfig[] = [];
 
-        // 1. agy (.agent/hooks.json)
-        const agyPath = path.join(rootPath, '.agent', 'hooks.json');
-        if (fs.existsSync(agyPath)) {
-            const config = this.parseAgyHooks(agyPath, 'agy');
-            if (config) configs.push(config);
+        // 1. agy / antigravity PREFERRED (.agents/hooks.json — plural)
+        const agyPreferredPath = path.join(rootPath, '.agents', 'hooks.json');
+        if (fs.existsSync(agyPreferredPath)) {
+            const agyConfig = this.parseAgyHooks(agyPreferredPath, 'agy');
+            if (agyConfig) configs.push(agyConfig);
+            const antigravityConfig = this.parseAgyHooks(agyPreferredPath, 'antigravity');
+            if (antigravityConfig) configs.push(antigravityConfig);
         }
 
-        // 2. antigravity (.agent/hooks.json)
-        const antigravityPath = path.join(rootPath, '.agent', 'hooks.json');
-        if (fs.existsSync(antigravityPath)) {
-            const config = this.parseAgyHooks(antigravityPath, 'antigravity');
-            if (config) configs.push(config);
+        // 2. agy / antigravity DEPRECATED (.agent/hooks.json — singular; still scanned, warns)
+        const agyDeprecatedPath = path.join(rootPath, '.agent', 'hooks.json');
+        if (fs.existsSync(agyDeprecatedPath)) {
+            let used = false;
+            const agyConfig = this.parseAgyHooks(agyDeprecatedPath, 'agy');
+            if (agyConfig) { configs.push(agyConfig); used = true; }
+            const antigravityConfig = this.parseAgyHooks(agyDeprecatedPath, 'antigravity');
+            if (antigravityConfig) { configs.push(antigravityConfig); used = true; }
+            if (used) {
+                console.warn(`[HooksScanner] '.agent/hooks.json' is deprecated; please migrate to '.agents/hooks.json'`);
+            }
         }
 
         // 3. claude-code (.claude/settings.json)
@@ -94,16 +117,17 @@ export class HooksScanner {
             }
 
             // agy / antigravity hook format is grouped by a top level key:
-            // { "groupName": { "PostToolUse": [...] } }
-            // Let's find the first key that is an object containing hook events
+            //   { "groupName": { "before-tool-execution": [...] } }   (kebab-case stages)
+            // Copilot uses a versioned wrapper:
+            //   { "version": 1, "hooks": { "PreToolUse": [...] } }
+            // Find the first object value whose sub-keys look like hook events/stages.
             const keys = Object.keys(parsed);
             for (const key of keys) {
                 const val = parsed[key];
                 if (val && typeof val === 'object' && !Array.isArray(val)) {
-                    // Check if any sub-key matches a known event
                     const eventKeys = Object.keys(val);
-                    const hasEvents = eventKeys.some(ek => 
-                        ['PreToolUse', 'PostToolUse', 'SessionStart', 'Stop', 'Notification', 'PermissionRequest'].includes(ek)
+                    const hasEvents = eventKeys.some(ek =>
+                        (CANONICAL_EVENTS as string[]).includes(ek) || ek in ANTIGRAVITY_STAGE_TO_CANONICAL
                     );
                     if (hasEvents) {
                         return {
@@ -111,7 +135,7 @@ export class HooksScanner {
                             filePath,
                             scope: 'project',
                             groupName: key,
-                            events: val as Partial<Record<HookEvent, HookEntry[]>>,
+                            events: this.normaliseEventKeys(val),
                         };
                     }
                 }
@@ -123,12 +147,33 @@ export class HooksScanner {
                 filePath,
                 scope: 'project',
                 groupName: 'default-hooks',
-                events: parsed as Partial<Record<HookEvent, HookEntry[]>>,
+                events: this.normaliseEventKeys(parsed),
             };
         } catch (e) {
             console.error(`[HooksScanner] Error parsing hooks at ${filePath}`, e);
         }
         return null;
+    }
+
+    /**
+     * Normalise a raw events object's keys to canonical Claude-style event names,
+     * translating Antigravity kebab-case stages. Entries under keys that collapse to
+     * the same canonical event are concatenated. Unknown keys are dropped.
+     */
+    private normaliseEventKeys(raw: Record<string, any>): Partial<Record<HookEvent, HookEntry[]>> {
+        const out: Partial<Record<HookEvent, HookEntry[]>> = {};
+        for (const [key, value] of Object.entries(raw || {})) {
+            if (!Array.isArray(value)) continue;
+            let canonical: HookEvent | undefined;
+            if ((CANONICAL_EVENTS as string[]).includes(key)) {
+                canonical = key as HookEvent;
+            } else if (key in ANTIGRAVITY_STAGE_TO_CANONICAL) {
+                canonical = ANTIGRAVITY_STAGE_TO_CANONICAL[key];
+            }
+            if (!canonical) continue;
+            out[canonical] = [...(out[canonical] || []), ...(value as HookEntry[])];
+        }
+        return out;
     }
 
     private parseClaudeHooks(filePath: string): HooksConfig | null {
@@ -167,7 +212,9 @@ export class HooksScanner {
                 // Let's normalize these to PreToolUse / PostToolUse
                 for (const wsEvent of Object.keys(hooksObj)) {
                     let canonicalEvent: HookEvent | null = null;
-                    if (wsEvent.includes('pre_')) {
+                    if (wsEvent.includes('user_prompt')) {
+                        canonicalEvent = 'UserPromptSubmit';
+                    } else if (wsEvent.includes('pre_')) {
                         canonicalEvent = 'PreToolUse';
                     } else if (wsEvent.includes('post_')) {
                         canonicalEvent = 'PostToolUse';
