@@ -51,11 +51,11 @@
 The CLI is available via `npx` without any installation:
 
 ```bash
-# List all detected rules in the current directory
+# List all detected agent capabilities (rules, skills, MCPs, hooks) in the workspace
 npx ai-rules-converter scan
 
-# List all detected agent capabilities (rules, skills, MCPs, hooks) in the workspace
-npx ai-rules-converter scan-all
+# Limit the scan to a single format
+npx ai-rules-converter scan --format cursor
 
 # Migrate all capabilities (rules, skills, MCP, hooks) from Antigravity to the new agy format
 npx ai-rules-converter migrate --from antigravity --to agy
@@ -69,6 +69,13 @@ npx ai-rules-converter convert --from antigravity --to gemini-cli --root ./my-pr
 # Preview migration without writing files
 npx ai-rules-converter migrate --from cursor --to agy --dry-run
 
+# List installed plugins (Claude Code + Antigravity)
+npx ai-rules-converter scan-plugins
+
+# Convert a plugin between Claude Code and Antigravity (writes to the target's global plugins dir)
+npx ai-rules-converter convert-plugin --plugin caveman --from claude-code --to antigravity
+npx ai-rules-converter convert-plugin --plugin caveman --from antigravity --to claude-code --out ./out
+
 # List all supported formats
 npx ai-rules-converter list-formats
 ```
@@ -78,12 +85,41 @@ npx ai-rules-converter list-formats
 | Option | Description |
 |---|---|
 | `--root <path>` | Workspace root directory (default: current directory) |
-| `--from <format>` | Source format (required for `convert`) |
-| `--to <format>` | Target format (required for `convert`) |
+| `--from <format>` | Source format (required for `convert` / plugin-bundle conversion) |
+| `--to <format>` | Target format (required for `convert` / plugin-bundle conversion) |
 | `--format <format>` | Filter format (for `scan` command) |
+| `--plugin <name>` | Plugin name (for `convert-plugin`) |
+| `--out <dir>` | Output dir for the converted plugin bundle (default: target's global plugins dir) |
+| `--plugins-dir <dir>` | Override the source plugins directory |
 | `--detail`, `-d` | Show extra details (descriptions, commands, matchers) in scan commands |
 | `--verbose`, `-v` | Show extra details (alias for `--detail`) |
 | `--dry-run` | Preview output without writing files |
+
+## Plugin Conversion (Claude Code ⇄ Antigravity)
+
+`convert-plugin --from <fmt> --to <fmt>` converts a whole plugin **bundle** between the two
+ecosystems. It is intentionally restricted to `claude-code` and `antigravity`.
+
+| | Claude Code plugin | Antigravity plugin |
+|---|---|---|
+| Location | `~/.claude/plugins/marketplaces/<name>/` | `~/.gemini/antigravity-cli/plugins/<name>/` |
+| Manifest | `.claude-plugin/plugin.json` (hooks **inline**) | `plugin.json` (hook-free) |
+| Hooks | inline `"hooks"` key | `hooks.json` (grouped under `<name>-hooks`) |
+| MCP | `.mcp.json` | `mcp_config.json` |
+| Skills / Agents / Rules | `skills/`, `agents/`, `rules/` | `skills/`, `agents/`, `rules/` |
+
+The conversion relocates the manifest, splits/merges hooks, renames the MCP config, and copies
+`skills/`, `agents/`, `rules/` (and any `hooks/` / `scripts/` support dirs) verbatim. By default the
+result is written to the **target's global plugins dir**; pass `--out <dir>` to write elsewhere, or
+`--dry-run` to preview. Hook commands that reference `${CLAUDE_PLUGIN_ROOT}` are preserved with a
+portability warning.
+
+### Antigravity path conventions
+
+Workspace skills live in `.agents/skills/` and MCP in `.agents/mcp_config.json` (note the **plural**
+`.agents`). The singular `.agent/skills`, `.agent/mcp_config.json`, and `.agent/hooks.json` are still
+scanned but reported as **deprecated**. Global Antigravity config lives under
+`~/.gemini/antigravity-cli/` (`skills/`, `mcp_config.json`, `plugins/`).
 
 ## Flat-File Format Notes (Claude Code & Gemini CLI)
 

@@ -5,7 +5,7 @@
  *   npx ai-rules-converter <command> [options]
  *
  * Commands:
- *   scan    [--root <path>] [--format <ide>]   List detected rules
+ *   scan    [--root <path>] [--format <ide>]   List detected capabilities (rules, skills, MCP, hooks)
  *   convert --from <ide> --to <ide> [--root <path>] [--dry-run]
  *   list-formats                               List all supported formats
  *
@@ -27,9 +27,10 @@ import { HooksScanner } from '../core/HooksScanner';
 import { MigrationOrchestrator } from '../core/MigrationOrchestrator';
 import { convertRuleToResult, writeConversionResult } from '../core/RuleConverterCore';
 import { IDE } from '../core/RuleModel';
-import { getGlobalRoot, getPluginsDir } from '../core/GlobalPathResolver';
+import { getGlobalRoot, getPluginsDir, getAntigravityPluginsDir } from '../core/GlobalPathResolver';
 import { PluginScanner } from '../core/PluginScanner';
 import { PluginConverter } from '../core/PluginConverter';
+import { PluginMigrator } from '../core/PluginMigrator';
 
 // ---------------------------------------------------------------------------
 // Supported formats
@@ -54,12 +55,12 @@ const SUPPORTED_FORMATS: { id: IDE; description: string; paths: string[] }[] = [
     {
         id: 'antigravity',
         description: 'Antigravity CLI (Gemini)',
-        paths: ['.agent/rules/*.md'],
+        paths: ['.agents/rules/*.md'],
     },
     {
         id: 'agy',
         description: 'Antigravity CLI (agy)',
-        paths: ['.agent/rules/*.md', '.agent/skills/', '.agent/mcp_config.json', '.agent/hooks.json'],
+        paths: ['.agents/rules/*.md', '.agents/skills/', '.agents/mcp_config.json', '.agents/hooks.json'],
     },
     {
         id: 'claude-code',
@@ -154,12 +155,11 @@ ${color('Usage:', c.bold)}
   npx ai-rules-converter <command> [options]
 
 ${color('Commands:', c.bold)}
-  ${color('scan', c.green)}            List detected rules in the workspace
-  ${color('scan-all', c.green)}        List all detected capabilities (rules, skills, MCP, hooks)
+  ${color('scan', c.green)}            List all detected capabilities (rules, skills, MCP, hooks)
   ${color('convert', c.green)}         Convert rules from one format to another
   ${color('migrate', c.green)}         Migrate ALL capabilities from one format to another
-  ${color('scan-plugins', c.green)}    List installed Claude Code marketplace plugins
-  ${color('convert-plugin', c.green)}  Convert a Claude plugin's assets to another IDE format
+  ${color('scan-plugins', c.green)}    List installed Claude Code and Antigravity plugins
+  ${color('convert-plugin', c.green)}  Convert a plugin between claude-code and antigravity (or extract assets)
   ${color('list-formats', c.green)}    Show all supported formats
 
 ${color('Options:', c.bold)}
@@ -172,7 +172,14 @@ ${color('Options:', c.bold)}
   --verbose, -v        Show details (alias for --detail)
   --dry-run            Print what would be written without writing any files
   --plugin <name>      Plugin name for convert-plugin command
-  --plugins-dir <dir>  Override Claude plugins directory (default: ~/.claude/plugins/marketplaces)
+  --out <dir>          Output dir for the converted plugin bundle (default: target's global plugins dir)
+  --plugins-dir <dir>  Override source plugins directory
+
+${color('Plugin conversion:', c.bold)}
+  ${color('convert-plugin', c.green)} with ${color('--from', c.dim)} does a plugin-to-plugin bundle conversion,
+  supported only between ${color('claude-code', c.yellow)} and ${color('antigravity', c.yellow)}. By default it writes to the
+  target's global plugins dir (~/.claude/plugins/marketplaces/<name> or
+  ~/.gemini/antigravity-cli/plugins/<name>); override with --out.
 
 ${color('Supported formats:', c.bold)}
 ${SUPPORTED_FORMATS.map(f => `  ${color(f.id.padEnd(14), c.yellow)} ${color(f.description, c.dim)}`).join('\n')}
@@ -180,15 +187,17 @@ ${SUPPORTED_FORMATS.map(f => `  ${color(f.id.padEnd(14), c.yellow)} ${color(f.de
 ${color('Examples:', c.bold)}
   npx ai-rules-converter scan
   npx ai-rules-converter scan --global
-  npx ai-rules-converter scan-all
+  npx ai-rules-converter scan --format cursor
   npx ai-rules-converter convert --from cursor --to claude-code
   npx ai-rules-converter convert --from cursor --to claude-code --global
   npx ai-rules-converter migrate --from antigravity --to agy
   npx ai-rules-converter migrate --from antigravity --to agy --root ./my-project
   npx ai-rules-converter scan-plugins
   npx ai-rules-converter scan-plugins --detail
-  npx ai-rules-converter convert-plugin --plugin caveman --to cursor
-  npx ai-rules-converter convert-plugin --plugin caveman --to windsurf --root ./my-project
+  npx ai-rules-converter convert-plugin --plugin caveman --from claude-code --to antigravity
+  npx ai-rules-converter convert-plugin --plugin caveman --from antigravity --to claude-code --dry-run
+  npx ai-rules-converter convert-plugin --plugin caveman --from claude-code --to antigravity --out ./out
+  npx ai-rules-converter convert-plugin --plugin caveman --to cursor   ${color('# legacy: extract assets into workspace', c.dim)}
 `);
 }
 
@@ -214,53 +223,148 @@ async function cmdScan(args: Record<string, string | boolean>): Promise<void> {
         process.exit(1);
     }
 
+    if (formatFilter && !isValidIDE(formatFilter)) {
+        console.error(color(`Error: Unknown format '${formatFilter}'. Use list-formats to see valid options.`, c.red));
+        process.exit(1);
+    }
+
     const scopeLabel = isGlobal ? color(' [global]', c.magenta) : '';
     console.log(`\n${color('Scanning', c.bold)} ${color(rootPath, c.cyan)}${scopeLabel}\n`);
 
-    const scanner = new RuleScanner();
-    let rules = await scanner.scanDirectory(rootPath);
+    const ruleScanner = new RuleScanner();
+    let rules = await ruleScanner.scanDirectory(rootPath);
+
+    const skillScanner = new SkillScanner();
+    let skills = await skillScanner.scanDirectory(rootPath);
+
+    const mcpScanner = new McpScanner();
+    let mcps = await mcpScanner.scanDirectory(rootPath);
+
+    const hooksScanner = new HooksScanner();
+    let hooks = await hooksScanner.scanDirectory(rootPath);
 
     if (formatFilter) {
-        if (!isValidIDE(formatFilter)) {
-            console.error(color(`Error: Unknown format '${formatFilter}'. Use list-formats to see valid options.`, c.red));
-            process.exit(1);
-        }
         rules = rules.filter(r => r.ide === formatFilter);
+        skills = skills.filter(s => s.ide === formatFilter);
+        mcps = mcps.filter(m => m.ide === formatFilter);
+        hooks = hooks.filter(h => h.ide === formatFilter);
     }
 
-    if (rules.length === 0) {
-        console.log(color('No rules found.', c.dim));
+    const detectedIdes = new Set([
+        ...rules.map(r => r.ide),
+        ...skills.map(s => s.ide),
+        ...mcps.map(m => m.ide),
+        ...hooks.map(h => h.ide),
+    ]);
+
+    if (detectedIdes.size === 0) {
+        console.log(color('No agentic capabilities detected.', c.dim));
         return;
     }
 
-    // Group by IDE
-    const grouped = new Map<string, typeof rules>();
-    for (const rule of rules) {
-        if (!grouped.has(rule.ide)) {
-            grouped.set(rule.ide, []);
-        }
-        grouped.get(rule.ide)!.push(rule);
-    }
+    let totalRules = 0;
+    let totalSkills = 0;
+    let totalMcpServers = 0;
+    let totalHookEvents = 0;
 
-    for (const [ide, ideRules] of grouped.entries()) {
+    for (const ide of SUPPORTED_FORMATS.map(f => f.id)) {
+        if (!detectedIdes.has(ide)) {
+            continue;
+        }
+
         const fmt = SUPPORTED_FORMATS.find(f => f.id === ide);
-        console.log(`${color(fmt?.description ?? ide, c.bold, c.blue)} ${color(`(${ideRules.length} rule${ideRules.length === 1 ? '' : 's'})`, c.dim)}`);
-        for (const rule of ideRules) {
-            const trigger = (rule.metadata as any).trigger ?? (rule.metadata.alwaysApply ? 'always_on' : 'manual');
-            const rawGlobs = rule.metadata.globs;
-            const globsArr = rawGlobs
-                ? (Array.isArray(rawGlobs) ? rawGlobs : [rawGlobs])
-                : [];
-            const globs = globsArr.length > 0 ? ` [${globsArr.join(', ')}]` : '';
-            console.log(`  ${color('◆', c.cyan)} ${rule.name}${color(globs, c.dim)}  ${color(trigger, c.yellow)}`);
-            if (isDetail && rule.metadata.description) {
-                console.log(`      ${color(rule.metadata.description, c.dim)}`);
+        console.log(`${color(fmt?.description ?? ide, c.bold, c.blue)} ${color(`(${ide})`, c.dim)}`);
+
+        // Rules
+        const ideRules = rules.filter(r => r.ide === ide);
+        if (ideRules.length > 0) {
+            totalRules += ideRules.length;
+            console.log(`  ${color('Rules:', c.bold, c.yellow)} (${ideRules.length})`);
+            for (const rule of ideRules) {
+                const trigger = (rule.metadata as any).trigger ?? (rule.metadata.alwaysApply ? 'always_on' : 'manual');
+                const rawGlobs = rule.metadata.globs;
+                const globsArr = rawGlobs
+                    ? (Array.isArray(rawGlobs) ? rawGlobs : [rawGlobs])
+                    : [];
+                const globs = globsArr.length > 0 ? ` [${globsArr.join(', ')}]` : '';
+                console.log(`    ${color('◆', c.cyan)} ${rule.name}${color(globs, c.dim)}  ${color(trigger, c.yellow)}`);
+                if (isDetail && rule.metadata.description) {
+                    console.log(`      ${color(rule.metadata.description, c.dim)}`);
+                }
             }
         }
+
+        // Skills
+        const ideSkills = skills.filter(s => s.ide === ide);
+        if (ideSkills.length > 0) {
+            totalSkills += ideSkills.length;
+            console.log(`  ${color('Skills:', c.bold, c.yellow)} (${ideSkills.length})`);
+            for (const skill of ideSkills) {
+                console.log(`    ${color('◆', c.cyan)} ${skill.name} ${color(`(${skill.folderName})`, c.dim)}`);
+                if (isDetail) {
+                    if (skill.description) {
+                        console.log(`      ${color(skill.description, c.dim)}`);
+                    }
+                    if (skill.additionalFiles && skill.additionalFiles.length > 0) {
+                        console.log(`      ${color('Files:', c.dim)} ${skill.additionalFiles.join(', ')}`);
+                    }
+                }
+            }
+        }
+
+        // MCP Configuration
+        const ideMcp = mcps.find(m => m.ide === ide);
+        if (ideMcp) {
+            const serverNames = Object.keys(ideMcp.servers);
+            totalMcpServers += serverNames.length;
+            console.log(`  ${color('MCP Servers:', c.bold, c.yellow)} (${serverNames.length})`);
+            for (const serverName of serverNames) {
+                const server = ideMcp.servers[serverName];
+                const typeLabel = (server as any).command ? 'stdio' : ((server as any).url || (server as any).serverUrl ? 'remote' : 'mcp');
+                console.log(`    ${color('◆', c.cyan)} ${serverName} ${color(`(${typeLabel})`, c.dim)}`);
+                if (isDetail) {
+                    if ((server as any).command) {
+                        const cmdStr = [(server as any).command, ...((server as any).args || [])].join(' ');
+                        console.log(`      ${color('Command:', c.dim)} ${cmdStr}`);
+                        if ((server as any).env) {
+                            console.log(`      ${color('Env:', c.dim)} ${JSON.stringify((server as any).env)}`);
+                        }
+                    } else if ((server as any).url || (server as any).serverUrl) {
+                        console.log(`      ${color('URL:', c.dim)} ${(server as any).url || (server as any).serverUrl}`);
+                    }
+                }
+            }
+        }
+
+        // Hooks Configuration
+        const ideHooks = hooks.find(h => h.ide === ide);
+        if (ideHooks) {
+            const eventNames = Object.keys(ideHooks.events);
+            totalHookEvents += eventNames.length;
+            console.log(`  ${color('Event Hooks:', c.bold, c.yellow)} (${eventNames.length})`);
+            for (const eventName of eventNames) {
+                const entries = (ideHooks.events as Record<string, typeof ideHooks.events[keyof typeof ideHooks.events]>)[eventName] || [];
+                console.log(`    ${color('◆', c.cyan)} ${eventName} ${color(`(${entries.length} hook(s))`, c.dim)}`);
+                if (isDetail) {
+                    for (const entry of entries) {
+                        const matcher = entry.matcher ? ` [${entry.matcher}]` : '';
+                        console.log(`      ${color('Matcher:', c.dim)}${matcher}`);
+                        for (const hk of entry.hooks) {
+                            const cmd = hk.command || hk.script || hk.url || '';
+                            console.log(`        ${color('-', c.dim)} ${color(hk.type, c.yellow)}: ${cmd}`);
+                        }
+                    }
+                }
+            }
+        }
+
         console.log();
     }
 
-    console.log(color(`Total: ${rules.length} rule${rules.length === 1 ? '' : 's'}`, c.bold));
+    console.log(color(
+        `Total: ${totalRules} rule(s), ${totalSkills} skill(s), ${totalMcpServers} MCP server(s), ${totalHookEvents} hook event(s)`,
+        c.bold,
+    ));
 }
 
 async function cmdConvert(args: Record<string, string | boolean>): Promise<void> {
@@ -305,7 +409,7 @@ async function cmdConvert(args: Record<string, string | boolean>): Promise<void>
     for (let i = 0; i < rules.length; i++) {
         const rule = rules[i];
         try {
-            const result = convertRuleToResult(rule, toFmt as IDE, rootPath);
+            const result = convertRuleToResult(rule, toFmt as IDE, rootPath, isGlobal ? 'global' : 'project');
 
             if (dryRun) {
                 console.log(`  ${color('[DRY RUN]', c.magenta)} ${rule.name}`);
@@ -326,132 +430,6 @@ async function cmdConvert(args: Record<string, string | boolean>): Promise<void>
         console.log(`\n${color(`Done: ${successCount} converted, ${errorCount} errors.`, c.bold)}`);
     } else {
         console.log(`\n${color(`Dry run complete. ${rules.length} rule(s) would be converted.`, c.bold)}`);
-    }
-}
-
-async function cmdScanAll(args: Record<string, string | boolean>): Promise<void> {
-    const isGlobal = Boolean(args['global'] || args['g']);
-    const rootPath = isGlobal ? getGlobalRoot() : path.resolve(String(args['root'] ?? '.'));
-    const isDetail = isDetailView(args);
-
-    if (!fs.existsSync(rootPath)) {
-        console.error(color(`Error: Root path does not exist: ${rootPath}`, c.red));
-        process.exit(1);
-    }
-
-    const scopeLabel = isGlobal ? color(' [global]', c.magenta) : '';
-    console.log(`\n${color('Scanning All Capabilities in', c.bold)} ${color(rootPath, c.cyan)}${scopeLabel}\n`);
-
-    const ruleScanner = new RuleScanner();
-    const rules = await ruleScanner.scanDirectory(rootPath);
-
-    const skillScanner = new SkillScanner();
-    const skills = await skillScanner.scanDirectory(rootPath);
-
-    const mcpScanner = new McpScanner();
-    const mcps = await mcpScanner.scanDirectory(rootPath);
-
-    const hooksScanner = new HooksScanner();
-    const hooks = await hooksScanner.scanDirectory(rootPath);
-
-    const detectedIdes = new Set([
-        ...rules.map(r => r.ide),
-        ...skills.map(s => s.ide),
-        ...mcps.map(m => m.ide),
-        ...hooks.map(h => h.ide),
-    ]);
-
-    if (detectedIdes.size === 0) {
-        console.log(color('No agentic capabilities detected.', c.dim));
-        return;
-    }
-
-    for (const ide of SUPPORTED_FORMATS.map(f => f.id)) {
-        if (!detectedIdes.has(ide)) {
-            continue;
-        }
-
-        const fmt = SUPPORTED_FORMATS.find(f => f.id === ide);
-        console.log(`${color(fmt?.description ?? ide, c.bold, c.blue)} ${color(`(${ide})`, c.dim)}`);
-
-        // Rules
-        const ideRules = rules.filter(r => r.ide === ide);
-        if (ideRules.length > 0) {
-            console.log(`  ${color('Rules:', c.bold, c.yellow)} (${ideRules.length})`);
-            for (const rule of ideRules) {
-                const trigger = (rule.metadata as any).trigger ?? (rule.metadata.alwaysApply ? 'always_on' : 'manual');
-                const rawGlobs = rule.metadata.globs;
-                const globsArr = rawGlobs
-                    ? (Array.isArray(rawGlobs) ? rawGlobs : [rawGlobs])
-                    : [];
-                const globs = globsArr.length > 0 ? ` [${globsArr.join(', ')}]` : '';
-                console.log(`    ${color('◆', c.cyan)} ${rule.name}${color(globs, c.dim)}  ${color(trigger, c.yellow)}`);
-                if (isDetail && rule.metadata.description) {
-                    console.log(`      ${color(rule.metadata.description, c.dim)}`);
-                }
-            }
-        }
-
-        // Skills
-        const ideSkills = skills.filter(s => s.ide === ide);
-        if (ideSkills.length > 0) {
-            console.log(`  ${color('Skills:', c.bold, c.yellow)} (${ideSkills.length})`);
-            for (const skill of ideSkills) {
-                console.log(`    ${color('◆', c.cyan)} ${skill.name} ${color(`(${skill.folderName})`, c.dim)}`);
-                if (isDetail) {
-                    if (skill.description) {
-                        console.log(`      ${color(skill.description, c.dim)}`);
-                    }
-                    if (skill.additionalFiles && skill.additionalFiles.length > 0) {
-                        console.log(`      ${color('Files:', c.dim)} ${skill.additionalFiles.join(', ')}`);
-                    }
-                }
-            }
-        }
-
-        // MCP Configuration
-        const ideMcp = mcps.find(m => m.ide === ide);
-        if (ideMcp) {
-            console.log(`  ${color('MCP Servers:', c.bold, c.yellow)}`);
-            for (const serverName of Object.keys(ideMcp.servers)) {
-                const server = ideMcp.servers[serverName];
-                const typeLabel = (server as any).command ? 'stdio' : ((server as any).url || (server as any).serverUrl ? 'remote' : 'mcp');
-                console.log(`    ${color('◆', c.cyan)} ${serverName} ${color(`(${typeLabel})`, c.dim)}`);
-                if (isDetail) {
-                    if ((server as any).command) {
-                        const cmdStr = [(server as any).command, ...((server as any).args || [])].join(' ');
-                        console.log(`      ${color('Command:', c.dim)} ${cmdStr}`);
-                        if ((server as any).env) {
-                            console.log(`      ${color('Env:', c.dim)} ${JSON.stringify((server as any).env)}`);
-                        }
-                    } else if ((server as any).url || (server as any).serverUrl) {
-                        console.log(`      ${color('URL:', c.dim)} ${(server as any).url || (server as any).serverUrl}`);
-                    }
-                }
-            }
-        }
-
-        // Hooks Configuration
-        const ideHooks = hooks.find(h => h.ide === ide);
-        if (ideHooks) {
-            console.log(`  ${color('Event Hooks:', c.bold, c.yellow)}`);
-            for (const eventName of Object.keys(ideHooks.events)) {
-                const entries = ideHooks.events[eventName as any] || [];
-                console.log(`    ${color('◆', c.cyan)} ${eventName} ${color(`(${entries.length} hook(s))`, c.dim)}`);
-                if (isDetail) {
-                    for (const entry of entries) {
-                        const matcher = entry.matcher ? ` [${entry.matcher}]` : '';
-                        console.log(`      ${color('Matcher:', c.dim)}${matcher}`);
-                        for (const hk of entry.hooks) {
-                            const cmd = hk.command || hk.script || hk.url || '';
-                            console.log(`        ${color('-', c.dim)} ${color(hk.type, c.yellow)}: ${cmd}`);
-                        }
-                    }
-                }
-            }
-        }
-
-        console.log();
     }
 }
 
@@ -508,7 +486,7 @@ async function cmdMigrate(args: Record<string, string | boolean>): Promise<void>
     }
 
     const orchestrator = new MigrationOrchestrator();
-    const report = await orchestrator.migrateAll(fromFmt as IDE, toFmt as IDE, rootPath);
+    const report = await orchestrator.migrateAll(fromFmt as IDE, toFmt as IDE, rootPath, isGlobal ? 'global' : 'project');
 
     if (report.errors && report.errors.length > 0) {
         console.error(color(`\nWarnings/Errors occurred during migration:`, c.yellow));
@@ -535,33 +513,65 @@ async function cmdScanPlugins(args: Record<string, string | boolean>): Promise<v
     const pluginsDir = args['plugins-dir']
         ? path.resolve(String(args['plugins-dir']))
         : getPluginsDir();
+    const antigravityDir = getAntigravityPluginsDir();
     const isDetail = isDetailView(args);
 
-    console.log(`\n${color('Scanning Claude Plugins in', c.bold)} ${color(pluginsDir, c.cyan)}\n`);
+    let total = 0;
 
-    if (!fs.existsSync(pluginsDir)) {
-        console.log(color('No plugins directory found.', c.dim));
-        return;
+    // --- Claude Code plugins ---
+    console.log(`\n${color('Claude Code plugins', c.bold, c.cyan)} ${color(pluginsDir, c.dim)}`);
+    if (fs.existsSync(pluginsDir)) {
+        const scanner = new PluginScanner();
+        const plugins = await scanner.scanPlugins(pluginsDir);
+        if (plugins.length === 0) {
+            console.log(color('  None found.', c.dim));
+        }
+        for (const plugin of plugins) {
+            console.log(`${color(plugin.name, c.bold, c.blue)}  ${color(plugin.description, c.dim)}`);
+            if (plugin.author) {
+                console.log(`  ${color('Author:', c.dim)} ${plugin.author.name}`);
+            }
+            if (plugin.skills.length > 0) {
+                console.log(`  ${color('Skills:', c.yellow)} ${plugin.skills.length}`);
+                if (isDetail) {
+                    for (const skill of plugin.skills) {
+                        console.log(`    ${color('◆', c.cyan)} ${skill.name}`);
+                    }
+                }
+            }
+            const hookCount = Object.keys(plugin.hooks).length;
+            if (hookCount > 0) {
+                console.log(`  ${color('Hook events:', c.yellow)} ${hookCount}`);
+                if (isDetail) {
+                    for (const event of Object.keys(plugin.hooks)) {
+                        console.log(`    ${color('◆', c.cyan)} ${event}`);
+                    }
+                }
+            }
+        }
+        total += plugins.length;
+    } else {
+        console.log(color('  Directory not found.', c.dim));
     }
 
-    const scanner = new PluginScanner();
-    const plugins = await scanner.scanPlugins(pluginsDir);
-
-    if (plugins.length === 0) {
-        console.log(color('No plugins found.', c.dim));
-        return;
+    // --- Antigravity plugins ---
+    console.log(`\n${color('Antigravity plugins', c.bold, c.cyan)} ${color(antigravityDir, c.dim)}`);
+    const agPlugins = listAntigravityPlugins(antigravityDir);
+    if (!fs.existsSync(antigravityDir)) {
+        console.log(color('  Directory not found.', c.dim));
+    } else if (agPlugins.length === 0) {
+        console.log(color('  None found.', c.dim));
     }
-
-    for (const plugin of plugins) {
+    for (const plugin of agPlugins) {
         console.log(`${color(plugin.name, c.bold, c.blue)}  ${color(plugin.description, c.dim)}`);
         if (plugin.author) {
             console.log(`  ${color('Author:', c.dim)} ${plugin.author.name}`);
         }
-        if (plugin.skills.length > 0) {
-            console.log(`  ${color('Skills:', c.yellow)} ${plugin.skills.length}`);
+        if (plugin.skillDirs.length > 0) {
+            console.log(`  ${color('Skills:', c.yellow)} ${plugin.skillDirs.length}`);
             if (isDetail) {
-                for (const skill of plugin.skills) {
-                    console.log(`    ${color('◆', c.cyan)} ${skill.name}`);
+                for (const sd of plugin.skillDirs) {
+                    console.log(`    ${color('◆', c.cyan)} ${path.basename(sd)}`);
                 }
             }
         }
@@ -574,12 +584,129 @@ async function cmdScanPlugins(args: Record<string, string | boolean>): Promise<v
                 }
             }
         }
-        console.log();
+        if (Object.keys(plugin.mcpServers).length > 0) {
+            console.log(`  ${color('MCP servers:', c.yellow)} ${Object.keys(plugin.mcpServers).length}`);
+        }
     }
-    console.log(color(`Total: ${plugins.length} plugin(s)`, c.bold));
+    total += agPlugins.length;
+
+    console.log(`\n${color(`Total: ${total} plugin(s)`, c.bold)}`);
+}
+
+/** List Antigravity plugins (dirs containing plugin.json) as loaded bundles. */
+function listAntigravityPlugins(dir: string): import('../core/AgentCapability').PluginBundle[] {
+    if (!fs.existsSync(dir)) { return []; }
+    const migrator = new PluginMigrator();
+    const bundles: import('../core/AgentCapability').PluginBundle[] = [];
+    let entries: string[] = [];
+    try { entries = fs.readdirSync(dir); } catch { return []; }
+    for (const entry of entries) {
+        const pluginDir = path.join(dir, entry);
+        try {
+            if (!fs.statSync(pluginDir).isDirectory()) { continue; }
+        } catch { continue; }
+        if (!fs.existsSync(path.join(pluginDir, 'plugin.json'))) { continue; }
+        try {
+            bundles.push(migrator.loadBundle('antigravity', pluginDir));
+        } catch { /* skip unparseable */ }
+    }
+    return bundles;
+}
+
+/**
+ * Plugin-bundle migration between Claude Code and Antigravity.
+ * Triggered when `--from` is supplied. Produces a native plugin bundle for the
+ * target ecosystem (manifest + hooks + mcp + skills/agents/rules).
+ */
+async function cmdConvertPluginBundle(args: Record<string, string | boolean>): Promise<void> {
+    const pluginName = String(args['plugin'] ?? '');
+    const fromArg = String(args['from'] ?? '');
+    const toArg = String(args['to'] ?? '');
+    const dryRun = Boolean(args['dry-run']);
+
+    if (!pluginName) {
+        console.error(color('Error: --plugin <name> is required.', c.red));
+        process.exit(1);
+    }
+
+    const fromFmt = PluginMigrator.toPluginFormat(fromArg);
+    const toFmt = PluginMigrator.toPluginFormat(toArg);
+
+    if (!fromFmt) {
+        console.error(color(`Error: --from must be 'claude-code' or 'antigravity' (got '${fromArg}'). Plugin conversion is only supported between these two.`, c.red));
+        process.exit(1);
+    }
+    if (!toFmt) {
+        console.error(color(`Error: --to must be 'claude-code' or 'antigravity' (got '${toArg}'). Plugin conversion is only supported between these two.`, c.red));
+        process.exit(1);
+    }
+    if (fromFmt === toFmt) {
+        console.error(color(`Error: --from and --to are the same plugin format ('${fromFmt}') — nothing to convert.`, c.red));
+        process.exit(1);
+    }
+
+    const migrator = new PluginMigrator();
+    const searchRoot = args['plugins-dir'] ? path.resolve(String(args['plugins-dir'])) : undefined;
+
+    const sourceDir = migrator.findSourceDir(fromFmt, pluginName, searchRoot);
+    if (!sourceDir) {
+        const hint = fromFmt === 'antigravity' ? getAntigravityPluginsDir() : getPluginsDir();
+        console.error(color(`Error: ${fromFmt} plugin '${pluginName}' not found under ${hint}`, c.red));
+        process.exit(1);
+    }
+
+    const outDir = args['out']
+        ? path.resolve(String(args['out']))
+        : PluginMigrator.defaultOutputDir(toFmt, pluginName);
+
+    console.log(`\n${color('Converting Plugin', c.bold)} ${color(pluginName, c.yellow)}  ${color(fromFmt, c.dim)} → ${color(toFmt, c.green)}  ${color(dryRun ? '[DRY RUN]' : '', c.magenta)}`);
+    console.log(`${color('Source:', c.dim)} ${sourceDir}`);
+    console.log(`${color('Output:', c.dim)} ${outDir}\n`);
+
+    let report;
+    try {
+        const bundle = migrator.loadBundle(fromFmt, sourceDir);
+        report = migrator.migrate(bundle, toFmt, outDir, { dryRun });
+    } catch (e: any) {
+        console.error(color(`Error: ${e?.message ?? e}`, c.red));
+        process.exit(1);
+    }
+
+    for (const w of report.warnings) {
+        console.warn(`  ${color('!', c.yellow)} ${w}`);
+    }
+    for (const err of report.errors) {
+        console.error(`  ${color('✗', c.red)} ${err}`);
+    }
+
+    console.log(`${color(dryRun ? 'Would convert:' : 'Converted:', c.bold, c.cyan)}`);
+    console.log(`  Skills:       ${color(String(report.skillsConverted), c.green)}`);
+    console.log(`  Agents:       ${color(String(report.agentsConverted), c.green)}`);
+    console.log(`  Rules:        ${color(String(report.rulesConverted), c.green)}`);
+    console.log(`  MCP servers:  ${color(String(report.mcpServersConverted), c.green)}`);
+    console.log(`  Hook events:  ${color(String(report.hookEventsConverted), c.green)}`);
+
+    if (report.writtenPaths.length > 0) {
+        console.log(`\n${color(dryRun ? 'Would write:' : 'Written:', c.dim)}`);
+        for (const wp of report.writtenPaths) {
+            const rel = path.relative(outDir, wp) || path.basename(wp);
+            console.log(`  ${color(dryRun ? '·' : '✓', dryRun ? c.dim : c.green)} ${rel}`);
+        }
+    }
+
+    if (report.errors.length > 0) {
+        process.exit(1);
+    }
 }
 
 async function cmdConvertPlugin(args: Record<string, string | boolean>): Promise<void> {
+    // Bundle mode: claude-code <-> antigravity plugin-to-plugin conversion.
+    if (args['from']) {
+        await cmdConvertPluginBundle(args);
+        return;
+    }
+
+    // Legacy mode: extract a Claude plugin's assets into a workspace in the target IDE's native format.
     const pluginName = String(args['plugin'] ?? '');
     const toFmt = String(args['to'] ?? '');
     const rootPath = path.resolve(String(args['root'] ?? '.'));
@@ -662,9 +789,6 @@ async function main(): Promise<void> {
     switch (command) {
         case 'scan':
             await cmdScan(args);
-            break;
-        case 'scan-all':
-            await cmdScanAll(args);
             break;
         case 'convert':
             await cmdConvert(args);
