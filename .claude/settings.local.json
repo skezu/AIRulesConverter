@@ -2,7 +2,43 @@
   "permissions": {
     "allow": [
       "mcp__plugin_everything-claude-code_exa__web_fetch_exa",
-      "mcp__plugin_everything-claude-code_exa__web_search_exa"
+      "mcp__plugin_everything-claude-code_exa__web_search_exa",
+      "Bash(find \"C:/Users/loqma/.claude/plugins/marketplaces\" -maxdepth 3 -not -path \"*/cache/*\" | sort 2>/dev/null | head -80)",
+      "Read(//c/Users/loqma/.claude/plugins/marketplaces/**)",
+      "Bash(cat \"C:/Users/loqma/.claude/settings.json\" 2>/dev/null || echo \"NOT FOUND\")",
+      "Read(//c/Users/loqma/.claude/**)",
+      "Bash(ls \"C:/Users/loqma/.claude/\" 2>/dev/null)",
+      "Bash(mkdir -p \"c:/Users/loqma/OneDrive/Documents/Pro/AIRulesConverter/.claude/PRPs/plans\" 2>/dev/null; echo \"done\")",
+      "Bash(git checkout *)",
+      "Bash(npm run *)",
+      "Bash(node out/cli.js --help)",
+      "Bash(node out/cli.js scan --global)",
+      "Bash(node out/cli.js scan-plugins)",
+      "Bash(node out/cli.js scan-plugins --detail)",
+      "Bash(node out/cli.js convert-plugin --plugin caveman --to cursor --dry-run)",
+      "Bash(node out/cli.js convert-plugin --plugin caveman --to windsurf --root /tmp/test-workspace)",
+      "Bash(node out/cli.js scan-plugins --plugins-dir /nonexistent)",
+      "Bash(echo \"EXIT:$?\")",
+      "Bash(node out/cli.js convert-plugin --plugin nonexistent --to cursor)",
+      "Bash(node out/cli.js scan)",
+      "Bash(mkdir -p \"c:/Users/loqma/OneDrive/Documents/Pro/AIRulesConverter/.claude/PRPs/reports\")",
+      "Bash(mkdir -p \"c:/Users/loqma/OneDrive/Documents/Pro/AIRulesConverter/.claude/PRPs/plans/completed\")",
+      "Bash(cd \"c:/Users/loqma/OneDrive/Documents/Pro/AIRulesConverter\" && mv \".claude/PRPs/plans/global-config-and-plugin-conversion.plan.md\" \".claude/PRPs/plans/completed/global-config-and-plugin-conversion.plan.md\" && echo done)",
+      "Bash(find \"C:/Users/loqma/.kiro/steering\" -type f 2>/dev/null)",
+      "Read(//c/Users/loqma/.kiro/steering/**)",
+      "Bash(for d in \".cursor/skills\" \".kiro/skills\" \".gemini/skills\"; do *)",
+      "Read(//c/Users/loqma/**)",
+      "Bash(node out/cli.js scan-all --global)",
+      "Bash(node out/cli.js scan-all)",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)",
+      "Bash(node out/cli.js scan --format cursor)",
+      "Workflow(deep-research)",
+      "WebSearch"
+    ],
+    "additionalDirectories": [
+      "c:\\Users\\loqma\\OneDrive\\Documents\\Pro\\AIRulesConverter\\.claude\\PRPs",
+      "c:\\Users\\loqma\\OneDrive\\Documents\\Pro\\AIRulesConverter\\.claude\\PRPs\\plans"
     ]
   }
 }
