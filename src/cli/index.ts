@@ -1,8 +1,8 @@
 /**
- * aix — Standalone CLI
+ * aimig — Standalone CLI
  *
  * Usage:
- *   npx aix <command> [options]
+ *   npx aimig <command> [options]
  *
  * Commands:
  *   scan    [--root <path>] [--format <ide>]   List detected capabilities (rules, skills, MCP, hooks)
@@ -10,11 +10,11 @@
  *   list-formats                               List all supported formats
  *
  * Examples:
- *   npx aix scan
- *   npx aix scan --format cursor
- *   npx aix convert --from cursor --to claude-code
- *   npx aix convert --from antigravity --to gemini-cli --root ./my-project
- *   npx aix convert --from cursor --to copilot --dry-run
+ *   npx aimig scan
+ *   npx aimig scan --format cursor
+ *   npx aimig convert --from cursor --to claude-code
+ *   npx aimig convert --from antigravity --to gemini-cli --root ./my-project
+ *   npx aimig convert --from cursor --to copilot --dry-run
  */
 
 import * as path from 'path';
@@ -149,10 +149,10 @@ function color(str: string, ...codes: string[]): string {
 
 function printHelp(): void {
     console.log(`
-${color('aix', c.bold, c.cyan)}  v1.5.2
+${color('aimig', c.bold, c.cyan)}  v1.7.0
 
 ${color('Usage:', c.bold)}
-  npx aix <command> [options]
+  npx aimig <command> [options]
 
 ${color('Commands:', c.bold)}
   ${color('scan', c.green)}            List all detected capabilities (rules, skills, MCP, hooks)
@@ -185,19 +185,19 @@ ${color('Supported formats:', c.bold)}
 ${SUPPORTED_FORMATS.map(f => `  ${color(f.id.padEnd(14), c.yellow)} ${color(f.description, c.dim)}`).join('\n')}
 
 ${color('Examples:', c.bold)}
-  npx aix scan
-  npx aix scan --global
-  npx aix scan --format cursor
-  npx aix convert --from cursor --to claude-code
-  npx aix convert --from cursor --to claude-code --global
-  npx aix migrate --from antigravity --to agy
-  npx aix migrate --from antigravity --to agy --root ./my-project
-  npx aix scan-plugins
-  npx aix scan-plugins --detail
-  npx aix convert-plugin --plugin caveman --from claude-code --to antigravity
-  npx aix convert-plugin --plugin caveman --from antigravity --to claude-code --dry-run
-  npx aix convert-plugin --plugin caveman --from claude-code --to antigravity --out ./out
-  npx aix convert-plugin --plugin caveman --to cursor   ${color('# legacy: extract assets into workspace', c.dim)}
+  npx aimig scan
+  npx aimig scan --global
+  npx aimig scan --format cursor
+  npx aimig convert --from cursor --to claude-code
+  npx aimig convert --from cursor --to claude-code --global
+  npx aimig migrate --from antigravity --to agy
+  npx aimig migrate --from antigravity --to agy --root ./my-project
+  npx aimig scan-plugins
+  npx aimig scan-plugins --detail
+  npx aimig convert-plugin --plugin caveman --from claude-code --to antigravity
+  npx aimig convert-plugin --plugin caveman --from antigravity --to claude-code --dry-run
+  npx aimig convert-plugin --plugin caveman --from claude-code --to antigravity --out ./out
+  npx aimig convert-plugin --plugin caveman --to cursor   ${color('# legacy: extract assets into workspace', c.dim)}
 `);
 }
 
@@ -376,13 +376,13 @@ async function cmdConvert(args: Record<string, string | boolean>): Promise<void>
 
     if (!fromFmt || !isValidIDE(fromFmt)) {
         console.error(color(`Error: --from must be a valid format. Got: '${fromFmt}'`, c.red));
-        console.error(`Run 'npx aix list-formats' to see available formats.`);
+        console.error(`Run 'npx aimig list-formats' to see available formats.`);
         process.exit(1);
     }
 
     if (!toFmt || !isValidIDE(toFmt)) {
         console.error(color(`Error: --to must be a valid format. Got: '${toFmt}'`, c.red));
-        console.error(`Run 'npx aix list-formats' to see available formats.`);
+        console.error(`Run 'npx aimig list-formats' to see available formats.`);
         process.exit(1);
     }
 
@@ -442,13 +442,13 @@ async function cmdMigrate(args: Record<string, string | boolean>): Promise<void>
 
     if (!fromFmt || !isValidIDE(fromFmt)) {
         console.error(color(`Error: --from must be a valid format. Got: '${fromFmt}'`, c.red));
-        console.error(`Run 'npx aix list-formats' to see available formats.`);
+        console.error(`Run 'npx aimig list-formats' to see available formats.`);
         process.exit(1);
     }
 
     if (!toFmt || !isValidIDE(toFmt)) {
         console.error(color(`Error: --to must be a valid format. Got: '${toFmt}'`, c.red));
-        console.error(`Run 'npx aix list-formats' to see available formats.`);
+        console.error(`Run 'npx aimig list-formats' to see available formats.`);
         process.exit(1);
     }
 
@@ -721,7 +721,7 @@ async function cmdConvertPlugin(args: Record<string, string | boolean>): Promise
     }
     if (!toFmt || !isValidIDE(toFmt)) {
         console.error(color(`Error: --to must be a valid format. Got: '${toFmt}'`, c.red));
-        console.error(`Run 'npx aix list-formats' to see available formats.`);
+        console.error(`Run 'npx aimig list-formats' to see available formats.`);
         process.exit(1);
     }
 
