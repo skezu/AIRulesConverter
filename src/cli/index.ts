@@ -2,14 +2,17 @@
  * aimig — Standalone CLI
  *
  * Usage:
+ *   npx aimig                                  Launch the interactive scanner UI (no arguments)
  *   npx aimig <command> [options]
  *
  * Commands:
+ *   (no command) | ui | tui                    Interactive, navigable scan viewer (one tool at a time)
  *   scan    [--root <path>] [--format <ide>]   List detected capabilities (rules, skills, MCP, hooks)
  *   convert --from <ide> --to <ide> [--root <path>] [--dry-run]
  *   list-formats                               List all supported formats
  *
  * Examples:
+ *   npx aimig
  *   npx aimig scan
  *   npx aimig scan --format cursor
  *   npx aimig convert --from cursor --to claude-code
@@ -31,6 +34,7 @@ import { getGlobalRoot, getPluginsDir, getAntigravityPluginsDir } from '../core/
 import { PluginScanner } from '../core/PluginScanner';
 import { PluginConverter } from '../core/PluginConverter';
 import { PluginMigrator } from '../core/PluginMigrator';
+import { runInteractive } from './interactive';
 
 // ---------------------------------------------------------------------------
 // Supported formats
@@ -152,9 +156,11 @@ function printHelp(): void {
 ${color('aimig', c.bold, c.cyan)}  v1.7.0
 
 ${color('Usage:', c.bold)}
+  npx aimig                 ${color('# launch the interactive scanner (no arguments)', c.dim)}
   npx aimig <command> [options]
 
 ${color('Commands:', c.bold)}
+  ${color('(no command)', c.green)}    Launch the interactive scanner UI (alias: ${color('ui', c.dim)})
   ${color('scan', c.green)}            List all detected capabilities (rules, skills, MCP, hooks)
   ${color('convert', c.green)}         Convert rules from one format to another
   ${color('migrate', c.green)}         Migrate ALL capabilities from one format to another
@@ -185,6 +191,7 @@ ${color('Supported formats:', c.bold)}
 ${SUPPORTED_FORMATS.map(f => `  ${color(f.id.padEnd(14), c.yellow)} ${color(f.description, c.dim)}`).join('\n')}
 
 ${color('Examples:', c.bold)}
+  npx aimig
   npx aimig scan
   npx aimig scan --global
   npx aimig scan --format cursor
@@ -775,11 +782,38 @@ async function cmdConvertPlugin(args: Record<string, string | boolean>): Promise
 // Entry point
 // ---------------------------------------------------------------------------
 
+async function cmdInteractive(args: Record<string, string | boolean>): Promise<void> {
+    const isGlobal = Boolean(args['global'] || args['g']);
+    const rootPath = isGlobal ? getGlobalRoot() : path.resolve(String(args['root'] ?? '.'));
+
+    if (!fs.existsSync(rootPath)) {
+        console.error(color(`Error: Root path does not exist: ${rootPath}`, c.red));
+        process.exit(1);
+    }
+
+    const launched = await runInteractive({
+        rootPath,
+        isGlobal,
+        formats: SUPPORTED_FORMATS.map(f => ({ id: f.id, description: f.description })),
+    });
+
+    // Not a TTY (piped / redirected): fall back to the static scan output.
+    if (!launched) {
+        await cmdScan(args);
+    }
+}
+
 async function main(): Promise<void> {
     const argv = process.argv.slice(2);
 
-    if (argv.length === 0 || argv[0] === '--help' || argv[0] === '-h') {
+    if (argv[0] === '--help' || argv[0] === '-h') {
         printHelp();
+        return;
+    }
+
+    // No arguments → launch the interactive scanner UI.
+    if (argv.length === 0) {
+        await cmdInteractive({});
         return;
     }
 
@@ -787,6 +821,11 @@ async function main(): Promise<void> {
     const command = String(args['_command'] ?? '');
 
     switch (command) {
+        case 'interactive':
+        case 'ui':
+        case 'tui':
+            await cmdInteractive(args);
+            break;
         case 'scan':
             await cmdScan(args);
             break;

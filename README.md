@@ -51,6 +51,12 @@
 The CLI is available via `npx` without any installation:
 
 ```bash
+# Launch the interactive scanner — scans the workspace and lets you browse the
+# results one AI tool at a time. Left pane = tool navigation, right pane = that
+# tool's full detail. ↑↓/jk select tool · PgUp/PgDn scroll · 1-9 jump ·
+# g toggle global/project · r rescan · q quit.
+npx aimig
+
 # List all detected agent capabilities (rules, skills, MCPs, hooks) in the workspace
 npx aimig scan
 

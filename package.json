@@ -132,7 +132,8 @@
     "build": "node esbuild.js",
     "package": "node esbuild.js --production",
     "watch": "node esbuild.js --watch",
-    "cli": "node out/cli.js"
+    "cli": "node out/cli.js",
+    "test:ui": "esbuild src/cli/interactive.ts --bundle --format=cjs --platform=node --external:vscode --outfile=out/_interactive_test.cjs && node scripts/test-interactive.cjs"
   },
   "devDependencies": {
     "@types/js-yaml": "^4.0.5",
