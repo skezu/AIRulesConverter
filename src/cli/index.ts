@@ -34,6 +34,7 @@ import { getGlobalRoot, getPluginsDir, getAntigravityPluginsDir } from '../core/
 import { PluginScanner } from '../core/PluginScanner';
 import { PluginConverter } from '../core/PluginConverter';
 import { PluginMigrator } from '../core/PluginMigrator';
+import { scanInstalledPlugins, getInstalledClaudePlugins } from '../core/PluginInventory';
 import { runInteractive } from './interactive';
 
 // ---------------------------------------------------------------------------
@@ -161,10 +162,10 @@ ${color('Usage:', c.bold)}
 
 ${color('Commands:', c.bold)}
   ${color('(no command)', c.green)}    Launch the interactive scanner UI (alias: ${color('ui', c.dim)})
-  ${color('scan', c.green)}            List all detected capabilities (rules, skills, MCP, hooks)
+  ${color('scan', c.green)}            List all detected capabilities (rules, skills, MCP, hooks, plugins)
   ${color('convert', c.green)}         Convert rules from one format to another
   ${color('migrate', c.green)}         Migrate ALL capabilities from one format to another
-  ${color('scan-plugins', c.green)}    List installed Claude Code and Antigravity plugins
+  ${color('scan-plugins', c.green)}    Plugins-only view (now also included in ${color('scan', c.dim)} and the interactive UI)
   ${color('convert-plugin', c.green)}  Convert a plugin between claude-code and antigravity (or extract assets)
   ${color('list-formats', c.green)}    Show all supported formats
 
@@ -250,11 +251,15 @@ async function cmdScan(args: Record<string, string | boolean>): Promise<void> {
     const hooksScanner = new HooksScanner();
     let hooks = await hooksScanner.scanDirectory(rootPath);
 
+    // Plugins are user-level: always listed from the global plugin dirs, regardless of scope.
+    let plugins = scanInstalledPlugins();
+
     if (formatFilter) {
         rules = rules.filter(r => r.ide === formatFilter);
         skills = skills.filter(s => s.ide === formatFilter);
         mcps = mcps.filter(m => m.ide === formatFilter);
         hooks = hooks.filter(h => h.ide === formatFilter);
+        plugins = plugins.filter(p => p.ide === formatFilter);
     }
 
     const detectedIdes = new Set([
@@ -262,6 +267,7 @@ async function cmdScan(args: Record<string, string | boolean>): Promise<void> {
         ...skills.map(s => s.ide),
         ...mcps.map(m => m.ide),
         ...hooks.map(h => h.ide),
+        ...plugins.map(p => p.ide),
     ]);
 
     if (detectedIdes.size === 0) {
@@ -273,6 +279,7 @@ async function cmdScan(args: Record<string, string | boolean>): Promise<void> {
     let totalSkills = 0;
     let totalMcpServers = 0;
     let totalHookEvents = 0;
+    let totalPlugins = 0;
 
     for (const ide of SUPPORTED_FORMATS.map(f => f.id)) {
         if (!detectedIdes.has(ide)) {
@@ -365,11 +372,29 @@ async function cmdScan(args: Record<string, string | boolean>): Promise<void> {
             }
         }
 
+        // Plugins (global Claude Code / Antigravity plugins, grouped under their tool)
+        const idePlugins = plugins.filter(p => p.ide === ide);
+        if (idePlugins.length > 0) {
+            totalPlugins += idePlugins.length;
+            console.log(`  ${color('Plugins:', c.bold, c.yellow)} (${idePlugins.length}) ${color('[global]', c.magenta)}`);
+            for (const plugin of idePlugins) {
+                const sub: string[] = [];
+                if (plugin.skillsCount) { sub.push(`${plugin.skillsCount} skill(s)`); }
+                if (plugin.hookEventsCount) { sub.push(`${plugin.hookEventsCount} hook(s)`); }
+                if (plugin.mcpCount) { sub.push(`${plugin.mcpCount} MCP`); }
+                const summary = sub.length > 0 ? color(` — ${sub.join(', ')}`, c.dim) : '';
+                console.log(`    ${color('◆', c.cyan)} ${plugin.name}${summary}`);
+                if (isDetail && plugin.description) {
+                    console.log(`      ${color(plugin.description, c.dim)}`);
+                }
+            }
+        }
+
         console.log();
     }
 
     console.log(color(
-        `Total: ${totalRules} rule(s), ${totalSkills} skill(s), ${totalMcpServers} MCP server(s), ${totalHookEvents} hook event(s)`,
+        `Total: ${totalRules} rule(s), ${totalSkills} skill(s), ${totalMcpServers} MCP server(s), ${totalHookEvents} hook event(s), ${totalPlugins} plugin(s)`,
         c.bold,
     ));
 }
@@ -517,24 +542,26 @@ async function cmdMigrate(args: Record<string, string | boolean>): Promise<void>
 }
 
 async function cmdScanPlugins(args: Record<string, string | boolean>): Promise<void> {
-    const pluginsDir = args['plugins-dir']
-        ? path.resolve(String(args['plugins-dir']))
-        : getPluginsDir();
     const antigravityDir = getAntigravityPluginsDir();
     const isDetail = isDetailView(args);
 
     let total = 0;
 
-    // --- Claude Code plugins ---
-    console.log(`\n${color('Claude Code plugins', c.bold, c.cyan)} ${color(pluginsDir, c.dim)}`);
-    if (fs.existsSync(pluginsDir)) {
+    // --- Claude Code plugins (installed ledger, not the whole marketplace catalog) ---
+    const installed = getInstalledClaudePlugins(
+        args['installed-file'] ? path.resolve(String(args['installed-file'])) : undefined,
+    );
+    console.log(`\n${color('Claude Code plugins', c.bold, c.cyan)} ${color('(installed)', c.magenta)}`);
+    if (installed.length === 0) {
+        console.log(color('  None installed.', c.dim));
+    } else {
         const scanner = new PluginScanner();
-        const plugins = await scanner.scanPlugins(pluginsDir);
-        if (plugins.length === 0) {
-            console.log(color('  None found.', c.dim));
-        }
+        const plugins = await scanner.scanPluginDirs(installed.map(i => i.installPath));
+        const metaByDir = new Map(installed.map(i => [i.installPath, i]));
         for (const plugin of plugins) {
-            console.log(`${color(plugin.name, c.bold, c.blue)}  ${color(plugin.description, c.dim)}`);
+            const meta = metaByDir.get(plugin.pluginDir);
+            const scopeLabel = meta ? color(`  [${meta.scope ?? 'user'}${meta.scope === 'local' && meta.projectPath ? `: ${path.basename(meta.projectPath)}` : ''}]`, c.dim) : '';
+            console.log(`${color(plugin.name, c.bold, c.blue)}  ${color(plugin.description, c.dim)}${scopeLabel}`);
             if (plugin.author) {
                 console.log(`  ${color('Author:', c.dim)} ${plugin.author.name}`);
             }
@@ -557,8 +584,6 @@ async function cmdScanPlugins(args: Record<string, string | boolean>): Promise<v
             }
         }
         total += plugins.length;
-    } else {
-        console.log(color('  Directory not found.', c.dim));
     }
 
     // --- Antigravity plugins ---
@@ -784,15 +809,16 @@ async function cmdConvertPlugin(args: Record<string, string | boolean>): Promise
 
 async function cmdInteractive(args: Record<string, string | boolean>): Promise<void> {
     const isGlobal = Boolean(args['global'] || args['g']);
-    const rootPath = isGlobal ? getGlobalRoot() : path.resolve(String(args['root'] ?? '.'));
+    const projectRoot = path.resolve(String(args['root'] ?? '.'));
+    const scanRoot = isGlobal ? getGlobalRoot() : projectRoot;
 
-    if (!fs.existsSync(rootPath)) {
-        console.error(color(`Error: Root path does not exist: ${rootPath}`, c.red));
+    if (!fs.existsSync(scanRoot)) {
+        console.error(color(`Error: Root path does not exist: ${scanRoot}`, c.red));
         process.exit(1);
     }
 
     const launched = await runInteractive({
-        rootPath,
+        projectRoot,
         isGlobal,
         formats: SUPPORTED_FORMATS.map(f => ({ id: f.id, description: f.description })),
     });

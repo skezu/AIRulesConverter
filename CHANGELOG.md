@@ -5,6 +5,13 @@ All notable changes to the **AI Migrate** extension will be documented in this f
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.8.0] - 2026-06-05
+
+### Added
+- **Interactive CLI Menu**: Added a rich interactive terminal UI (`npx aimig`) to scan, select, and convert specific rules, skills, MCP servers, hooks, and plugins.
+- **Selective Capability Conversion**: Introduced capability-level selective conversion allowing users to select/deselect specific items to migrate instead of migrating the entire workspace.
+- **Ecosystem Plugins Support**: Integrated installed plugin discovery and conversion for both Claude Code and Antigravity ecosystems under the main scan and interactive CLI.
+
 ## [1.7.0] - 2026-06-05
 
 ### Changed

@@ -4,7 +4,7 @@
   "publisher": "skezu",
   "description": "Convert AI coding rules between Cursor, Windsurf, Kiro, Antigravity, Claude Code, Gemini CLI, and GitHub Copilot formats. Also available as a standalone CLI.",
   "icon": "images/logo.png",
-  "version": "1.7.0",
+  "version": "1.8.0",
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -133,7 +133,8 @@
     "package": "node esbuild.js --production",
     "watch": "node esbuild.js --watch",
     "cli": "node out/cli.js",
-    "test:ui": "esbuild src/cli/interactive.ts --bundle --format=cjs --platform=node --external:vscode --outfile=out/_interactive_test.cjs && node scripts/test-interactive.cjs"
+    "test:ui": "esbuild src/cli/interactive.ts --bundle --format=cjs --platform=node --external:vscode --outfile=out/_interactive_test.cjs && esbuild src/core/SelectionConverter.ts --bundle --format=cjs --platform=node --external:vscode --outfile=out/_selection_test.cjs && node scripts/test-interactive.cjs",
+    "test:plugins": "esbuild src/core/PluginScanner.ts --bundle --format=cjs --platform=node --external:vscode --outfile=out/_pluginscanner_test.cjs && esbuild src/core/PluginInventory.ts --bundle --format=cjs --platform=node --external:vscode --outfile=out/_inventory_test.cjs && esbuild src/core/SelectionConverter.ts --bundle --format=cjs --platform=node --external:vscode --outfile=out/_selection_test.cjs && node scripts/test-plugin-scan.cjs"
   },
   "devDependencies": {
     "@types/js-yaml": "^4.0.5",

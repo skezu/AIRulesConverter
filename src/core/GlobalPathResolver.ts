@@ -127,6 +127,15 @@ export function getClaudePluginsRootDir(): string {
     return path.join(os.homedir(), '.claude', 'plugins');
 }
 
+/**
+ * The Claude Code installed-plugins ledger (~/.claude/plugins/installed_plugins.json).
+ * This is the source of truth for which plugins are actually installed/enabled —
+ * as opposed to the marketplaces/ dir, which holds the whole cloned catalog.
+ */
+export function getInstalledPluginsFile(): string {
+    return path.join(getClaudePluginsRootDir(), 'installed_plugins.json');
+}
+
 /** Antigravity CLI plugins directory (~/.gemini/antigravity-cli/plugins). */
 export function getAntigravityPluginsDir(): string {
     return path.join(os.homedir(), '.gemini', 'antigravity-cli', 'plugins');

@@ -1,24 +1,33 @@
 /**
  * interactive.ts — `aimig` with no arguments launches this.
  *
- * A dependency-free, full-screen terminal UI that scans the workspace for
- * agentic capabilities (rules, skills, MCP servers, hooks) across every
- * supported AI tool, then lets you browse the results one tool at a time:
+ * A dependency-free, full-screen terminal UI that scans the workspace (or the
+ * global/user config when toggled) for agentic capabilities — rules, skills,
+ * MCP servers, hook events, and installed plugins (Claude Code + Antigravity) —
+ * across every supported AI tool, then lets you browse and CONVERT them:
  *
- *   - Left pane  ("navigation"): a list of every detected AI tool. Move the
- *     selection with ↑/↓ (or j/k), Tab, or number keys 1-9.
- *   - Right pane ("window"): the full scan detail for the selected tool only,
- *     scrollable with PgUp/PgDn / Home / End when it overflows.
+ *   - Left pane  ("navigation"): every detected AI tool, with capability counts.
+ *   - Right pane ("window"): the selected tool's capabilities, one tool at a
+ *     time. Every rule / skill / MCP server / hook event is an individually
+ *     selectable item.
  *
- * Keys: ↑/↓ or j/k select tool · ←/→ scroll window · r rescan · g toggle
- * global/project scope · q / Esc / Ctrl-C quit.
+ * Conversion: select any subset (Space) or all (a), press `c`, choose a target
+ * format and project/global scope, and the selection is converted. With nothing
+ * selected, `c` converts everything for the current tool.
  *
- * No external deps — raw-mode keypress handling via Node's `readline`, ANSI
- * for drawing. Falls back to a static scan when stdout is not a TTY.
+ * Keys (browse):
+ *   ←/→            previous / next tool
+ *   ↑/↓ or j/k     move item cursor
+ *   PgUp/PgDn      scroll a page · Home/End first/last item
+ *   Space          toggle-select item · a  select / clear all
+ *   c              convert selection (or all) · g  toggle scan scope
+ *   r              rescan · q / Ctrl-C  quit
+ *
+ * No external deps — raw-mode keypress handling via Node's `readline`, ANSI for
+ * drawing. Falls back to a static scan when stdout is not a TTY.
  */
 
 import * as readline from 'readline';
-import * as path from 'path';
 import { RuleScanner } from '../core/RuleScanner';
 import { SkillScanner } from '../core/SkillScanner';
 import { McpScanner } from '../core/McpScanner';
@@ -26,6 +35,14 @@ import { HooksScanner } from '../core/HooksScanner';
 import { getGlobalRoot } from '../core/GlobalPathResolver';
 import { IDE, Rule } from '../core/RuleModel';
 import { Skill, McpConfig, HooksConfig, HookEntry } from '../core/AgentCapability';
+import { ScannedPlugin, scanInstalledPlugins } from '../core/PluginInventory';
+import {
+    CapabilityKind,
+    ConversionSelection,
+    SelectionConversionReport,
+    convertSelection,
+    isKindSupported,
+} from '../core/SelectionConverter';
 
 // ---------------------------------------------------------------------------
 // ANSI helpers (interactive mode is only entered when stdout.isTTY)
@@ -49,6 +66,10 @@ function col(str: string, ...codes: string[]): string {
 }
 
 const ANSI_RE = /\x1b\[[0-9;]*m/g;
+
+function stripAnsi(s: string): string {
+    return s.replace(ANSI_RE, '');
+}
 
 /** Visible (printable) length of a string, ignoring ANSI escape sequences. */
 function visibleWidth(s: string): number {
@@ -93,24 +114,60 @@ function padToWidth(s: string, width: number): string {
 // Scan model
 // ---------------------------------------------------------------------------
 
+/** A single selectable capability inside a tool's panel. */
+interface PanelItem {
+    /** Unique id within the panel (kind-prefixed). */
+    id: string;
+    kind: CapabilityKind;
+    /** Main display line (coloured, no checkbox/cursor). */
+    label: string;
+    /** Indented sub-lines (coloured, dim). Not selectable. */
+    details: string[];
+    rule?: Rule;
+    skill?: Skill;
+    serverName?: string;
+    eventName?: string;
+    plugin?: ScannedPlugin;
+}
+
+interface PanelSection {
+    title: string;
+    kind: CapabilityKind;
+    items: PanelItem[];
+}
+
 interface Panel {
     ide: IDE;
     description: string;
-    counts: { rules: number; skills: number; mcp: number; hooks: number };
-    /** Pre-rendered (coloured, untruncated) detail lines for the right pane. */
-    lines: string[];
+    counts: { rules: number; skills: number; mcp: number; hooks: number; plugins: number };
+    sections: PanelSection[];
+    /** Flattened selectable items in display order. */
+    items: PanelItem[];
+    // Raw source capabilities (passed straight to the converter).
+    rules: Rule[];
+    skills: Skill[];
+    mcp?: McpConfig;
+    hooks?: HooksConfig;
+    plugins: ScannedPlugin[];
 }
 
 export interface InteractiveOptions {
-    rootPath: string;
+    /** Project root (used for project-scope scan & conversion). */
+    projectRoot: string;
+    /** Start scanning the global/user config instead of the project. */
     isGlobal: boolean;
     /** Ordered list of supported formats (id + human description). */
     formats: { id: IDE; description: string }[];
 }
 
-/** Run all four scanners while silencing their console noise (keeps the TUI clean). */
+/**
+ * Run every scanner (rules, skills, MCP, hooks) under `rootPath`, plus the
+ * global plugin inventory (Claude Code + Antigravity), silencing scanner console
+ * noise so it doesn't corrupt the TUI. Plugins are user-level by nature, so they
+ * are always listed from the global plugin dirs regardless of the scan root.
+ */
 async function scanAll(rootPath: string): Promise<{
-    rules: Rule[]; skills: Skill[]; mcps: McpConfig[]; hooks: HooksConfig[];
+    rules: Rule[]; skills: Skill[]; mcps: McpConfig[]; hooks: HooksConfig[]; plugins: ScannedPlugin[];
 }> {
     const origWarn = console.warn;
     const origError = console.error;
@@ -121,7 +178,8 @@ async function scanAll(rootPath: string): Promise<{
         const skills = await new SkillScanner().scanDirectory(rootPath);
         const mcps = await new McpScanner().scanDirectory(rootPath);
         const hooks = await new HooksScanner().scanDirectory(rootPath);
-        return { rules, skills, mcps, hooks };
+        const plugins = scanInstalledPlugins();
+        return { rules, skills, mcps, hooks, plugins };
     } finally {
         console.warn = origWarn;
         console.error = origError;
@@ -130,14 +188,16 @@ async function scanAll(rootPath: string): Promise<{
 
 function buildPanels(
     formats: { id: IDE; description: string }[],
-    data: { rules: Rule[]; skills: Skill[]; mcps: McpConfig[]; hooks: HooksConfig[] },
+    data: { rules: Rule[]; skills: Skill[]; mcps: McpConfig[]; hooks: HooksConfig[]; plugins?: ScannedPlugin[] },
 ): Panel[] {
     const { rules, skills, mcps, hooks } = data;
+    const plugins = data.plugins ?? [];
     const detected = new Set<IDE>([
         ...rules.map(r => r.ide),
         ...skills.map(s => s.ide),
         ...mcps.map(m => m.ide),
         ...hooks.map(h => h.ide),
+        ...plugins.map(p => p.ide),
     ]);
 
     const panels: Panel[] = [];
@@ -148,141 +208,213 @@ function buildPanels(
         const ideSkills = skills.filter(s => s.ide === fmt.id);
         const ideMcp = mcps.find(m => m.ide === fmt.id);
         const ideHooks = hooks.find(h => h.ide === fmt.id);
+        const idePlugins = plugins.filter(p => p.ide === fmt.id);
 
-        const mcpCount = ideMcp ? Object.keys(ideMcp.servers).length : 0;
-        const hookCount = ideHooks ? Object.keys(ideHooks.events).length : 0;
+        const sections = buildSections(ideRules, ideSkills, ideMcp, ideHooks, idePlugins);
+        const items = sections.flatMap(s => s.items);
 
         panels.push({
             ide: fmt.id,
             description: fmt.description,
-            counts: { rules: ideRules.length, skills: ideSkills.length, mcp: mcpCount, hooks: hookCount },
-            lines: buildDetailLines(fmt.description, fmt.id, ideRules, ideSkills, ideMcp, ideHooks),
+            counts: {
+                rules: ideRules.length,
+                skills: ideSkills.length,
+                mcp: ideMcp ? Object.keys(ideMcp.servers).length : 0,
+                hooks: ideHooks ? Object.keys(ideHooks.events).length : 0,
+                plugins: idePlugins.length,
+            },
+            sections,
+            items,
+            rules: ideRules,
+            skills: ideSkills,
+            mcp: ideMcp,
+            hooks: ideHooks,
+            plugins: idePlugins,
         });
     }
     return panels;
 }
 
-function buildDetailLines(
-    description: string,
-    ide: IDE,
+function buildSections(
     rules: Rule[],
     skills: Skill[],
     mcp: McpConfig | undefined,
     hooks: HooksConfig | undefined,
-): string[] {
-    const lines: string[] = [];
-    lines.push(col(description, c.bold, c.blue) + ' ' + col(`(${ide})`, c.dim));
-    lines.push('');
+    plugins: ScannedPlugin[] = [],
+): PanelSection[] {
+    const sections: PanelSection[] = [];
 
-    // Rules
     if (rules.length > 0) {
-        lines.push(col(`Rules (${rules.length})`, c.bold, c.yellow));
-        for (const rule of rules) {
-            const trigger = (rule.metadata as any).trigger ?? (rule.metadata.alwaysApply ? 'always_on' : 'manual');
-            const rawGlobs = rule.metadata.globs;
-            const globsArr = rawGlobs ? (Array.isArray(rawGlobs) ? rawGlobs : [rawGlobs]) : [];
-            const globs = globsArr.length > 0 ? col(` [${globsArr.join(', ')}]`, c.dim) : '';
-            lines.push(`  ${col('◆', c.cyan)} ${rule.name}${globs}  ${col(trigger, c.yellow)}`);
-            if (rule.metadata.description) {
-                lines.push(`      ${col(rule.metadata.description, c.dim)}`);
-            }
-        }
-        lines.push('');
+        sections.push({
+            title: `Rules (${rules.length})`,
+            kind: 'rule',
+            items: rules.map(rule => {
+                const trigger = (rule.metadata as any).trigger ?? (rule.metadata.alwaysApply ? 'always_on' : 'manual');
+                const rawGlobs = rule.metadata.globs;
+                const globsArr = rawGlobs ? (Array.isArray(rawGlobs) ? rawGlobs : [rawGlobs]) : [];
+                const globs = globsArr.length > 0 ? col(` [${globsArr.join(', ')}]`, c.dim) : '';
+                const details: string[] = [];
+                if (rule.metadata.description) { details.push(col(rule.metadata.description, c.dim)); }
+                return {
+                    id: `rule:${rule.id}`,
+                    kind: 'rule' as const,
+                    label: `${rule.name}${globs}  ${col(trigger, c.yellow)}`,
+                    details,
+                    rule,
+                };
+            }),
+        });
     }
 
-    // Skills
     if (skills.length > 0) {
-        lines.push(col(`Skills (${skills.length})`, c.bold, c.yellow));
-        for (const skill of skills) {
-            lines.push(`  ${col('◆', c.cyan)} ${skill.name} ${col(`(${skill.folderName})`, c.dim)}`);
-            if (skill.description) {
-                lines.push(`      ${col(skill.description, c.dim)}`);
-            }
-            if (skill.additionalFiles && skill.additionalFiles.length > 0) {
-                lines.push(`      ${col('Files:', c.dim)} ${skill.additionalFiles.join(', ')}`);
-            }
-        }
-        lines.push('');
+        sections.push({
+            title: `Skills (${skills.length})`,
+            kind: 'skill',
+            items: skills.map(skill => {
+                const details: string[] = [];
+                if (skill.description) { details.push(col(skill.description, c.dim)); }
+                if (skill.additionalFiles && skill.additionalFiles.length > 0) {
+                    details.push(`${col('Files:', c.dim)} ${skill.additionalFiles.join(', ')}`);
+                }
+                return {
+                    id: `skill:${skill.id}`,
+                    kind: 'skill' as const,
+                    label: `${skill.name} ${col(`(${skill.folderName})`, c.dim)}`,
+                    details,
+                    skill,
+                };
+            }),
+        });
     }
 
-    // MCP servers
     if (mcp) {
         const names = Object.keys(mcp.servers);
-        lines.push(col(`MCP Servers (${names.length})`, c.bold, c.yellow));
-        for (const name of names) {
-            const server = mcp.servers[name] as any;
-            const typeLabel = server.command ? 'stdio' : (server.url || server.serverUrl ? 'remote' : 'mcp');
-            lines.push(`  ${col('◆', c.cyan)} ${name} ${col(`(${typeLabel})`, c.dim)}`);
-            if (server.command) {
-                const cmdStr = [server.command, ...(server.args || [])].join(' ');
-                lines.push(`      ${col('Command:', c.dim)} ${cmdStr}`);
-                if (server.env) {
-                    lines.push(`      ${col('Env:', c.dim)} ${Object.keys(server.env).join(', ')}`);
+        sections.push({
+            title: `MCP Servers (${names.length})`,
+            kind: 'mcp',
+            items: names.map(name => {
+                const server = mcp.servers[name] as any;
+                const typeLabel = server.command ? 'stdio' : (server.url || server.serverUrl ? 'remote' : 'mcp');
+                const details: string[] = [];
+                if (server.command) {
+                    details.push(`${col('Command:', c.dim)} ${[server.command, ...(server.args || [])].join(' ')}`);
+                    if (server.env) { details.push(`${col('Env:', c.dim)} ${Object.keys(server.env).join(', ')}`); }
+                } else if (server.url || server.serverUrl) {
+                    details.push(`${col('URL:', c.dim)} ${server.url || server.serverUrl}`);
                 }
-            } else if (server.url || server.serverUrl) {
-                lines.push(`      ${col('URL:', c.dim)} ${server.url || server.serverUrl}`);
-            }
-        }
-        lines.push('');
+                return {
+                    id: `mcp:${name}`,
+                    kind: 'mcp' as const,
+                    label: `${name} ${col(`(${typeLabel})`, c.dim)}`,
+                    details,
+                    serverName: name,
+                };
+            }),
+        });
     }
 
-    // Hooks
     if (hooks) {
         const eventNames = Object.keys(hooks.events);
-        lines.push(col(`Event Hooks (${eventNames.length})`, c.bold, c.yellow));
-        for (const eventName of eventNames) {
-            const entries: HookEntry[] = (hooks.events as Record<string, HookEntry[]>)[eventName] || [];
-            lines.push(`  ${col('◆', c.cyan)} ${eventName} ${col(`(${entries.length} hook(s))`, c.dim)}`);
-            for (const entry of entries) {
-                const matcher = entry.matcher ? ` [${entry.matcher}]` : '';
-                if (matcher) {
-                    lines.push(`      ${col('Matcher:', c.dim)}${col(matcher, c.dim)}`);
+        sections.push({
+            title: `Event Hooks (${eventNames.length})`,
+            kind: 'hooks',
+            items: eventNames.map(eventName => {
+                const entries: HookEntry[] = (hooks.events as Record<string, HookEntry[]>)[eventName] || [];
+                const details: string[] = [];
+                for (const entry of entries) {
+                    if (entry.matcher) { details.push(`${col('Matcher:', c.dim)} ${col(entry.matcher, c.dim)}`); }
+                    for (const hk of entry.hooks || []) {
+                        const cmd = hk.command || (hk as any).script || hk.url || '';
+                        details.push(`${col('-', c.dim)} ${col(hk.type, c.yellow)}: ${cmd}`);
+                    }
                 }
-                for (const hk of entry.hooks || []) {
-                    const cmd = hk.command || (hk as any).script || hk.url || '';
-                    lines.push(`        ${col('-', c.dim)} ${col(hk.type, c.yellow)}: ${cmd}`);
-                }
-            }
-        }
-        lines.push('');
+                return {
+                    id: `hooks:${eventName}`,
+                    kind: 'hooks' as const,
+                    label: `${eventName} ${col(`(${entries.length} hook(s))`, c.dim)}`,
+                    details,
+                    eventName,
+                };
+            }),
+        });
     }
 
-    if (lines.length <= 2) {
-        lines.push(col('No capabilities detected for this tool.', c.dim));
+    if (plugins.length > 0) {
+        sections.push({
+            title: `Plugins (${plugins.length})`,
+            kind: 'plugin',
+            items: plugins.map(plugin => {
+                const sub: string[] = [];
+                if (plugin.skillsCount) { sub.push(`${plugin.skillsCount} skill(s)`); }
+                if (plugin.hookEventsCount) { sub.push(`${plugin.hookEventsCount} hook event(s)`); }
+                if (plugin.mcpCount) { sub.push(`${plugin.mcpCount} MCP server(s)`); }
+                const details: string[] = [];
+                if (plugin.description) { details.push(col(plugin.description, c.dim)); }
+                if (plugin.author) { details.push(`${col('Author:', c.dim)} ${plugin.author}`); }
+                if (sub.length > 0) { details.push(col(sub.join(' · '), c.dim)); }
+                return {
+                    id: `plugin:${plugin.name}`,
+                    kind: 'plugin' as const,
+                    label: `${plugin.name} ${col(`(${plugin.format})`, c.dim)}`,
+                    details,
+                    plugin,
+                };
+            }),
+        });
     }
-    return lines;
+
+    return sections;
 }
 
 // ---------------------------------------------------------------------------
 // Interactive application
 // ---------------------------------------------------------------------------
 
+type Mode = 'browse' | 'target' | 'result';
+
+interface WindowLine {
+    text: string;
+    /** Index into the current panel's `items` if this line is a selectable item. */
+    itemIndex?: number;
+}
+
 class InteractiveApp {
-    private rootPath: string;
-    private isGlobal: boolean;
+    private readonly projectRoot: string;
     private readonly formats: { id: IDE; description: string }[];
+    private isGlobal: boolean;
 
     private panels: Panel[] = [];
-    private selected = 0;     // index into panels (which tool)
-    private scroll = 0;       // vertical scroll offset within the right pane
+    private selectedTool = 0;       // index into panels
+    private cursorItem = 0;         // index into current panel.items
+    private scroll = 0;             // window scroll offset (in window lines)
     private scanning = false;
     private statusMsg = '';
+
+    /** Per-tool selection of item ids. */
+    private selections = new Map<IDE, Set<string>>();
+
+    private mode: Mode = 'browse';
+    // target picker state
+    private targetIndex = 0;
+    private targetScope: 'project' | 'global';
+    // result state
+    private report: SelectionConversionReport | null = null;
+    private resultScroll = 0;
 
     private resolveDone: (() => void) | null = null;
     private keypressHandler = (str: string, key: readline.Key) => this.onKey(str, key);
     private resizeHandler = () => this.render();
 
     constructor(opts: InteractiveOptions) {
-        this.rootPath = opts.rootPath;
+        this.projectRoot = opts.projectRoot;
         this.isGlobal = opts.isGlobal;
         this.formats = opts.formats;
+        this.targetScope = opts.isGlobal ? 'global' : 'project';
     }
 
     async run(): Promise<void> {
         readline.emitKeypressEvents(process.stdin);
-        if (process.stdin.isTTY) {
-            process.stdin.setRawMode(true);
-        }
+        if (process.stdin.isTTY) { process.stdin.setRawMode(true); }
         process.stdin.resume();
         process.stdin.on('keypress', this.keypressHandler);
         process.stdout.on('resize', this.resizeHandler);
@@ -291,7 +423,6 @@ class InteractiveApp {
         process.stdout.write('\x1b[?25l');   // hide cursor
 
         await this.rescan();
-
         await new Promise<void>(resolve => { this.resolveDone = resolve; });
     }
 
@@ -311,16 +442,26 @@ class InteractiveApp {
         if (this.resolveDone) { this.resolveDone(); }
     }
 
+    // -- scanning ---------------------------------------------------------
+
+    private get scanRoot(): string {
+        return this.isGlobal ? getGlobalRoot() : this.projectRoot;
+    }
+
+    private conversionRoot(scope: 'project' | 'global'): string {
+        return scope === 'global' ? getGlobalRoot() : this.projectRoot;
+    }
+
     private async rescan(): Promise<void> {
         this.scanning = true;
-        this.statusMsg = '';
         this.render();
         try {
-            const data = await scanAll(this.rootPath);
+            const data = await scanAll(this.scanRoot);
             this.panels = buildPanels(this.formats, data);
-            if (this.selected >= this.panels.length) {
-                this.selected = Math.max(0, this.panels.length - 1);
+            if (this.selectedTool >= this.panels.length) {
+                this.selectedTool = Math.max(0, this.panels.length - 1);
             }
+            this.cursorItem = 0;
             this.scroll = 0;
         } catch (e: any) {
             this.statusMsg = col(`Scan error: ${e?.message ?? e}`, c.red);
@@ -330,21 +471,22 @@ class InteractiveApp {
         }
     }
 
-    // -- layout geometry --------------------------------------------------
+    // -- geometry ---------------------------------------------------------
 
     private get cols(): number { return process.stdout.columns || 100; }
     private get rows(): number { return process.stdout.rows || 30; }
     private get navWidth(): number { return Math.min(30, Math.max(20, Math.floor(this.cols * 0.28))); }
     private get contentWidth(): number { return Math.max(10, this.cols - this.navWidth - 1); }
-    /** Body height = total rows minus header (2) and footer (2). */
     private get bodyHeight(): number { return Math.max(3, this.rows - 4); }
 
-    private get currentLines(): string[] {
-        return this.panels[this.selected]?.lines ?? [];
-    }
+    private get panel(): Panel | undefined { return this.panels[this.selectedTool]; }
 
-    private get maxScroll(): number {
-        return Math.max(0, this.currentLines.length - this.bodyHeight);
+    private currentSelection(): Set<string> {
+        const ide = this.panel?.ide;
+        if (!ide) { return new Set(); }
+        let set = this.selections.get(ide);
+        if (!set) { set = new Set(); this.selections.set(ide, set); }
+        return set;
     }
 
     // -- key handling -----------------------------------------------------
@@ -353,106 +495,252 @@ class InteractiveApp {
         if (!key) { return; }
         const name = key.name;
 
-        if ((key.ctrl && name === 'c') || name === 'q' || name === 'escape') {
+        if ((key.ctrl && name === 'c') || (this.mode === 'browse' && name === 'q')) {
             this.quit();
             return;
         }
         if (this.scanning) { return; }
 
+        if (this.mode === 'target') { this.onKeyTarget(name, key); return; }
+        if (this.mode === 'result') { this.onKeyResult(name); return; }
+        this.onKeyBrowse(name, key);
+    }
+
+    private onKeyBrowse(name: string | undefined, key: readline.Key): void {
         switch (name) {
+            case 'right':
+                this.toolDelta(1); break;
+            case 'left':
+                this.toolDelta(-1); break;
             case 'down':
             case 'j':
-                this.selectDelta(1);
-                break;
+                this.cursorDelta(1); break;
             case 'up':
             case 'k':
-                this.selectDelta(-1);
-                break;
-            case 'tab':
-                this.selectDelta(key.shift ? -1 : 1);
-                break;
-            case 'right':
-            case 'l':
+                this.cursorDelta(-1); break;
             case 'pagedown':
-            case 'space':
-                this.scrollBy(name === 'right' || name === 'l' ? 3 : this.bodyHeight - 1);
-                break;
-            case 'left':
-            case 'h':
+                this.cursorDelta(this.bodyHeight - 1); break;
             case 'pageup':
-                this.scrollBy(name === 'left' || name === 'h' ? -3 : -(this.bodyHeight - 1));
-                break;
+                this.cursorDelta(-(this.bodyHeight - 1)); break;
             case 'home':
-                this.scroll = 0;
-                this.render();
-                break;
+                this.cursorItem = 0; this.render(); break;
             case 'end':
-                this.scroll = this.maxScroll;
-                this.render();
-                break;
-            case 'r':
-                void this.rescan();
-                break;
+                this.cursorItem = Math.max(0, (this.panel?.items.length ?? 1) - 1); this.render(); break;
+            case 'space':
+                this.toggleCurrent(); break;
+            case 'a':
+                this.toggleAll(); break;
+            case 'c':
+                this.openTargetPicker(); break;
             case 'g':
-                this.toggleScope();
-                break;
+                this.toggleScope(); break;
+            case 'r':
+                void this.rescan(); break;
+            case 'escape':
+                this.quit(); break;
             default:
                 if (name && /^[1-9]$/.test(name)) {
                     const idx = parseInt(name, 10) - 1;
                     if (idx < this.panels.length) {
-                        this.selected = idx;
+                        this.selectedTool = idx;
+                        this.cursorItem = 0;
                         this.scroll = 0;
                         this.render();
                     }
                 }
                 break;
         }
+        void key;
     }
 
-    private selectDelta(delta: number): void {
+    private onKeyTarget(name: string | undefined, key: readline.Key): void {
+        const targets = this.candidateTargets();
+        switch (name) {
+            case 'down':
+            case 'j':
+                this.targetIndex = (this.targetIndex + 1) % Math.max(1, targets.length); this.render(); break;
+            case 'up':
+            case 'k':
+                this.targetIndex = (this.targetIndex - 1 + targets.length) % Math.max(1, targets.length); this.render(); break;
+            case 'left':
+            case 'right':
+            case 's':
+            case 'tab':
+                this.targetScope = this.targetScope === 'project' ? 'global' : 'project'; this.render(); break;
+            case 'return':
+                this.runConversion(); break;
+            case 'escape':
+            case 'q':
+                this.mode = 'browse'; this.render(); break;
+            default:
+                break;
+        }
+        void key;
+    }
+
+    private onKeyResult(name: string | undefined): void {
+        switch (name) {
+            case 'down':
+            case 'j':
+                this.resultScroll++; this.render(); break;
+            case 'up':
+            case 'k':
+                this.resultScroll = Math.max(0, this.resultScroll - 1); this.render(); break;
+            case 'q':
+                this.quit(); break;
+            default:
+                // Any other key dismisses the report and rescans (to reflect new files).
+                this.mode = 'browse';
+                this.report = null;
+                this.resultScroll = 0;
+                void this.rescan();
+                break;
+        }
+    }
+
+    // -- browse actions ---------------------------------------------------
+
+    private toolDelta(delta: number): void {
         if (this.panels.length === 0) { return; }
-        this.selected = (this.selected + delta + this.panels.length) % this.panels.length;
+        this.selectedTool = (this.selectedTool + delta + this.panels.length) % this.panels.length;
+        this.cursorItem = 0;
         this.scroll = 0;
         this.render();
     }
 
-    private scrollBy(delta: number): void {
-        this.scroll = Math.min(this.maxScroll, Math.max(0, this.scroll + delta));
+    private cursorDelta(delta: number): void {
+        const n = this.panel?.items.length ?? 0;
+        if (n === 0) { return; }
+        this.cursorItem = Math.min(n - 1, Math.max(0, this.cursorItem + delta));
+        this.render();
+    }
+
+    private toggleCurrent(): void {
+        const item = this.panel?.items[this.cursorItem];
+        if (!item) { return; }
+        const set = this.currentSelection();
+        if (set.has(item.id)) { set.delete(item.id); } else { set.add(item.id); }
+        this.render();
+    }
+
+    private toggleAll(): void {
+        const panel = this.panel;
+        if (!panel || panel.items.length === 0) { return; }
+        const set = this.currentSelection();
+        const allSelected = panel.items.every(it => set.has(it.id));
+        set.clear();
+        if (!allSelected) { panel.items.forEach(it => set.add(it.id)); }
         this.render();
     }
 
     private toggleScope(): void {
         this.isGlobal = !this.isGlobal;
-        this.rootPath = this.isGlobal ? getGlobalRoot() : process.cwd();
-        this.selected = 0;
+        this.targetScope = this.isGlobal ? 'global' : 'project';
+        this.selectedTool = 0;
         void this.rescan();
+    }
+
+    private candidateTargets(): { id: IDE; description: string }[] {
+        const src = this.panel?.ide;
+        return this.formats.filter(f => f.id !== src);
+    }
+
+    private openTargetPicker(): void {
+        if (!this.panel || this.panel.items.length === 0) { return; }
+        this.mode = 'target';
+        this.targetIndex = 0;
+        this.render();
+    }
+
+    /** Build the ConversionSelection from the current panel's checked items (or all if none). */
+    private buildSelection(): ConversionSelection | undefined {
+        const panel = this.panel;
+        if (!panel) { return undefined; }
+        const set = this.currentSelection();
+        if (set.size === 0) { return undefined; } // none checked → convert all
+
+        const ruleIds = new Set<string>();
+        const skillIds = new Set<string>();
+        const mcpServerNames = new Set<string>();
+        const hookEventNames = new Set<string>();
+        const pluginNames = new Set<string>();
+        for (const item of panel.items) {
+            if (!set.has(item.id)) { continue; }
+            if (item.kind === 'rule' && item.rule) { ruleIds.add(item.rule.id); }
+            else if (item.kind === 'skill' && item.skill) { skillIds.add(item.skill.id); }
+            else if (item.kind === 'mcp' && item.serverName) { mcpServerNames.add(item.serverName); }
+            else if (item.kind === 'hooks' && item.eventName) { hookEventNames.add(item.eventName); }
+            else if (item.kind === 'plugin' && item.plugin) { pluginNames.add(item.plugin.name); }
+        }
+        return { ruleIds, skillIds, mcpServerNames, hookEventNames, pluginNames };
+    }
+
+    private runConversion(): void {
+        const panel = this.panel;
+        const targets = this.candidateTargets();
+        const target = targets[this.targetIndex];
+        if (!panel || !target) { this.mode = 'browse'; this.render(); return; }
+
+        let report: SelectionConversionReport;
+        try {
+            report = convertSelection({
+                fromIde: panel.ide,
+                toIde: target.id,
+                rootPath: this.conversionRoot(this.targetScope),
+                scope: this.targetScope,
+                rules: panel.rules,
+                skills: panel.skills,
+                mcp: panel.mcp,
+                hooks: panel.hooks,
+                plugins: panel.plugins,
+                selection: this.buildSelection(),
+                dryRun: false,
+            });
+        } catch (e: any) {
+            report = {
+                fromIde: panel.ide, toIde: target.id, scope: this.targetScope, dryRun: false,
+                outcomes: [{ kind: 'rule', name: '(conversion)', ok: false, error: e?.message ?? String(e) }],
+                writtenPaths: [], successCount: 0, errorCount: 1,
+            };
+        }
+        // Clear the selection that was just converted.
+        this.currentSelection().clear();
+        this.report = report;
+        this.resultScroll = 0;
+        this.mode = 'result';
+        this.render();
     }
 
     // -- rendering --------------------------------------------------------
 
-    /** Build the full frame as an array of rows (no cursor control codes). */
     private buildFrameLines(): string[] {
         const cols = this.cols;
         const lines: string[] = [];
 
-        // Header (2 lines)
+        // Header
         const scope = this.isGlobal ? col(' [global]', c.magenta) : col(' [project]', c.dim);
-        const title = col('aimig', c.bold, c.cyan) + col('  interactive scan', c.dim) + scope;
-        const rootLabel = col(truncateToWidth(this.rootPath, cols - visibleWidth(title) - 3), c.dim);
+        const title = col('aimig', c.bold, c.cyan) + col('  interactive', c.dim) + scope;
+        const rootLabel = col(truncateToWidth(this.scanRoot, cols - visibleWidth(title) - 3), c.dim);
         lines.push(padToWidth(`${title}  ${rootLabel}`, cols));
         lines.push(col('─'.repeat(cols), c.dim));
 
-        // Body (bodyHeight lines): nav | window
-        const navLines = this.buildNavLines();
-        const windowLines = this.buildWindowLines();
-        const sep = col('│', c.dim);
-        for (let i = 0; i < this.bodyHeight; i++) {
-            const left = padToWidth(navLines[i] ?? '', this.navWidth);
-            const right = truncateToWidth(windowLines[i] ?? '', this.contentWidth);
-            lines.push(left + sep + right);
+        // Body
+        if (this.mode === 'target') {
+            for (const l of this.buildTargetBody()) { lines.push(padToWidth(l, cols)); }
+        } else if (this.mode === 'result') {
+            for (const l of this.buildResultBody()) { lines.push(padToWidth(l, cols)); }
+        } else {
+            const navLines = this.buildNavLines();
+            const windowLines = this.buildWindowView();
+            const sep = col('│', c.dim);
+            for (let i = 0; i < this.bodyHeight; i++) {
+                const left = padToWidth(navLines[i] ?? '', this.navWidth);
+                const right = truncateToWidth(windowLines[i] ?? '', this.contentWidth);
+                lines.push(left + sep + right);
+            }
         }
 
-        // Footer (2 lines)
+        // Footer
         lines.push(col('─'.repeat(cols), c.dim));
         lines.push(padToWidth(this.buildFooter(), cols));
         return lines;
@@ -465,7 +753,6 @@ class InteractiveApp {
 
     private render(): void {
         const lines = this.buildFrameLines();
-        // Paint: home cursor, then write each row clearing to EOL, clear below.
         process.stdout.write('\x1b[H');
         process.stdout.write(lines.map(l => l + '\x1b[K').join('\r\n'));
         process.stdout.write('\x1b[J');
@@ -475,28 +762,20 @@ class InteractiveApp {
         const out: string[] = [];
         out.push(col('AI tools', c.bold));
         out.push('');
-
-        if (this.scanning) {
-            out.push(col('scanning…', c.yellow));
-            return out;
-        }
-        if (this.panels.length === 0) {
-            out.push(col('none detected', c.dim));
-            return out;
-        }
+        if (this.scanning) { out.push(col('scanning…', c.yellow)); return out; }
+        if (this.panels.length === 0) { out.push(col('none detected', c.dim)); return out; }
 
         this.panels.forEach((panel, idx) => {
-            const isSel = idx === this.selected;
+            const isSel = idx === this.selectedTool;
             const num = idx < 9 ? `${idx + 1}` : ' ';
             const counts = this.shortCounts(panel.counts);
-            // Build the inner label first, then highlight the whole padded cell.
-            const label = ` ${num} ${panel.ide}`;
-            const inner = padToWidth(`${label}`, this.navWidth - visibleWidth(counts) - 1)
-                + counts + ' ';
+            const selCount = (this.selections.get(panel.ide)?.size ?? 0);
+            const mark = selCount > 0 ? col('•', c.green) : ' ';
             if (isSel) {
-                out.push(col(stripAnsi(inner), c.reverse, c.cyan));
+                const inner = ` ${num} ${panel.ide} ${counts}`;
+                out.push(col(padToWidth(stripAnsi(inner), this.navWidth), c.reverse, c.cyan));
             } else {
-                out.push(padToWidth(` ${col(num, c.dim)} ${panel.ide} ${col(counts, c.dim)}`, this.navWidth));
+                out.push(padToWidth(`${mark}${col(num, c.dim)} ${panel.ide} ${col(counts, c.dim)}`, this.navWidth));
             }
         });
         return out;
@@ -508,70 +787,198 @@ class InteractiveApp {
         if (counts.skills) { parts.push(`${counts.skills}S`); }
         if (counts.mcp) { parts.push(`${counts.mcp}M`); }
         if (counts.hooks) { parts.push(`${counts.hooks}H`); }
+        if (counts.plugins) { parts.push(`${counts.plugins}P`); }
         return parts.join(' ');
     }
 
-    private buildWindowLines(): string[] {
+    /** Build the windowed (scrolled) slice of the current tool's items. */
+    private buildWindowView(): string[] {
         if (this.scanning) { return [col('Scanning workspace…', c.yellow)]; }
         if (this.panels.length === 0) {
             return [
                 col('No agentic capabilities detected.', c.bold),
                 '',
-                col(`Root: ${this.rootPath}`, c.dim),
+                col(`Root: ${this.scanRoot}`, c.dim),
                 '',
-                col("Press 'g' to toggle global/project scope, 'r' to rescan, 'q' to quit.", c.dim),
+                col("'g' toggle global/project scope · 'r' rescan · 'q' quit.", c.dim),
             ];
         }
-        const all = this.currentLines;
-        return all.slice(this.scroll, this.scroll + this.bodyHeight);
+
+        const allLines = this.buildPanelLines();
+        // Keep the cursor's line visible.
+        const cursorLine = allLines.findIndex(l => l.itemIndex === this.cursorItem);
+        if (cursorLine >= 0) {
+            if (cursorLine < this.scroll) { this.scroll = cursorLine; }
+            else if (cursorLine >= this.scroll + this.bodyHeight) { this.scroll = cursorLine - this.bodyHeight + 1; }
+        }
+        const maxScroll = Math.max(0, allLines.length - this.bodyHeight);
+        this.scroll = Math.min(maxScroll, Math.max(0, this.scroll));
+        return allLines.slice(this.scroll, this.scroll + this.bodyHeight).map(l => l.text);
     }
 
-    // -- test seams (not used in normal operation) -----------------------
+    private buildPanelLines(): WindowLine[] {
+        const panel = this.panel;
+        const out: WindowLine[] = [];
+        if (!panel) { return out; }
+        const set = this.currentSelection();
 
-    /** Inject scan results without touching disk (test only). */
-    __setStateForTest(panels: Panel[], selected = 0, isGlobal = this.isGlobal): void {
+        out.push({ text: col(panel.description, c.bold, c.blue) + ' ' + col(`(${panel.ide})`, c.dim) });
+        out.push({ text: '' });
+
+        for (const section of panel.sections) {
+            out.push({ text: col(section.title, c.bold, c.yellow) });
+            for (const item of section.items) {
+                const idx = panel.items.indexOf(item);
+                const isCursor = idx === this.cursorItem;
+                const checked = set.has(item.id);
+                const box = checked ? col('[x]', c.green) : col('[ ]', c.dim);
+                if (isCursor) {
+                    const plain = ` ${checked ? '[x]' : '[ ]'} ${stripAnsi(item.label)}`;
+                    out.push({ text: col(plain, c.reverse), itemIndex: idx });
+                } else {
+                    out.push({ text: ` ${box} ${item.label}`, itemIndex: idx });
+                }
+                for (const d of item.details) {
+                    out.push({ text: `       ${d}` });
+                }
+            }
+            out.push({ text: '' });
+        }
+        return out;
+    }
+
+    private buildTargetBody(): string[] {
+        const panel = this.panel;
+        const out: string[] = [];
+        const sel = this.currentSelection();
+        const count = sel.size === 0 ? (panel?.items.length ?? 0) : sel.size;
+        const what = sel.size === 0 ? col('ALL', c.bold) : col(`${count}`, c.bold);
+
+        out.push(col('Convert', c.bold, c.cyan) + `  ${what} item(s) from ` + col(panel?.ide ?? '?', c.yellow));
+        out.push('');
+        out.push('Scope:  ' + this.scopeToggle());
+        out.push('');
+        out.push(col('Target format:', c.bold) + col('  (↑/↓ choose · Enter convert · Esc cancel)', c.dim));
+        out.push('');
+
+        const targets = this.candidateTargets();
+        const kinds = this.selectedKinds();
+        targets.forEach((t, idx) => {
+            const isSel = idx === this.targetIndex;
+            const supportNote = this.supportNote(t.id, kinds);
+            const line = `  ${t.id.padEnd(13)} ${t.description}${supportNote}`;
+            out.push(isSel ? col(padToWidth(stripAnsi(line), Math.max(40, this.cols - 2)), c.reverse, c.cyan) : line);
+        });
+        return out;
+    }
+
+    private scopeToggle(): string {
+        const proj = this.targetScope === 'project' ? col(' project ', c.reverse, c.green) : col(' project ', c.dim);
+        const glob = this.targetScope === 'global' ? col(' global ', c.reverse, c.magenta) : col(' global ', c.dim);
+        return `${proj} ${glob}  ${col('(Tab / ←→ to toggle)', c.dim)}`;
+    }
+
+    /** Which capability kinds are in the effective selection (for support hints). */
+    private selectedKinds(): Set<CapabilityKind> {
+        const panel = this.panel;
+        const set = this.currentSelection();
+        const kinds = new Set<CapabilityKind>();
+        if (!panel) { return kinds; }
+        const items = set.size === 0 ? panel.items : panel.items.filter(it => set.has(it.id));
+        items.forEach(it => kinds.add(it.kind));
+        return kinds;
+    }
+
+    private supportNote(toIde: IDE, kinds: Set<CapabilityKind>): string {
+        const unsupported = Array.from(kinds).filter(k => !isKindSupported(k, toIde, this.targetScope));
+        if (unsupported.length === 0) { return ''; }
+        return col(`  (skips: ${unsupported.join(', ')})`, c.red);
+    }
+
+    private buildResultBody(): string[] {
+        const r = this.report;
+        const out: string[] = [];
+        if (!r) { return out; }
+
+        const head = `${r.dryRun ? 'Would convert' : 'Converted'} ` + col(r.fromIde, c.yellow) + ' → ' + col(r.toIde, c.green)
+            + col(`  [${r.scope}]`, c.dim);
+        out.push(col(head, c.bold));
+        out.push(col(`${r.successCount} ok, ${r.errorCount} error(s)`, r.errorCount > 0 ? c.yellow : c.green));
+        out.push('');
+
+        for (const o of r.outcomes) {
+            const icon = o.ok ? col('✓', c.green) : col('✗', c.red);
+            const kind = col(`[${o.kind}]`, c.dim);
+            const detail = o.ok ? col(o.writtenPath ?? '', c.dim) : col(o.error ?? '', c.red);
+            out.push(`  ${icon} ${kind} ${o.name}  ${detail}`);
+        }
+        out.push('');
+        out.push(col('Press any key to return (rescans) · q to quit.', c.dim));
+
+        const maxScroll = Math.max(0, out.length - this.bodyHeight);
+        this.resultScroll = Math.min(maxScroll, Math.max(0, this.resultScroll));
+        return out.slice(this.resultScroll, this.resultScroll + this.bodyHeight);
+    }
+
+    private buildFooter(): string {
+        if (this.statusMsg) { return this.statusMsg; }
+
+        if (this.mode === 'target') {
+            return col('↑↓', c.cyan) + ' format  ' + col('Tab/←→', c.cyan) + ' scope  '
+                + col('Enter', c.cyan) + ' convert  ' + col('Esc', c.cyan) + ' cancel';
+        }
+        if (this.mode === 'result') {
+            return col('↑↓', c.cyan) + ' scroll  ' + col('any key', c.cyan) + ' back  ' + col('q', c.cyan) + ' quit';
+        }
+
+        const nav = col('←→', c.cyan) + ' tool  '
+            + col('↑↓', c.cyan) + ' item  '
+            + col('Space', c.cyan) + ' select  '
+            + col('a', c.cyan) + ' all  '
+            + col('c', c.cyan) + ' convert  '
+            + col('g', c.cyan) + ' scope  '
+            + col('r', c.cyan) + ' rescan  '
+            + col('q', c.cyan) + ' quit';
+        let pos = '';
+        if (this.panel) {
+            const selCount = this.currentSelection().size;
+            const selStr = selCount > 0 ? col(`  ${selCount} selected`, c.green) : '';
+            pos = col(`  [${this.selectedTool + 1}/${this.panels.length}]`, c.dim) + selStr;
+        }
+        return nav + pos;
+    }
+
+    // -- test seams -------------------------------------------------------
+
+    __setStateForTest(panels: Panel[], selectedTool = 0, isGlobal = this.isGlobal): void {
         this.panels = panels;
-        this.selected = selected;
+        this.selectedTool = selectedTool;
+        this.cursorItem = 0;
         this.scroll = 0;
         this.scanning = false;
         this.isGlobal = isGlobal;
+        this.mode = 'browse';
     }
 
-    /** Feed a synthetic keypress (test only). Returns the resulting frame. */
     __keyForTest(name: string, opts: { ctrl?: boolean; shift?: boolean } = {}): string {
         this.onKey('', { name, ctrl: !!opts.ctrl, shift: !!opts.shift } as readline.Key);
         return this.renderFrame();
     }
 
-    get __selected(): number { return this.selected; }
-    get __scroll(): number { return this.scroll; }
-
-    private buildFooter(): string {
-        if (this.statusMsg) { return this.statusMsg; }
-        const nav = col('↑↓/jk', c.cyan) + ' tool  '
-            + col('PgUp/PgDn', c.cyan) + ' scroll  '
-            + col('1-9', c.cyan) + ' jump  '
-            + col('g', c.cyan) + ' scope  '
-            + col('r', c.cyan) + ' rescan  '
-            + col('q', c.cyan) + ' quit';
-        let pos = '';
-        if (this.panels.length > 0) {
-            const total = this.currentLines.length;
-            const end = Math.min(this.scroll + this.bodyHeight, total);
-            const scrollInfo = this.maxScroll > 0 ? col(`  lines ${this.scroll + 1}-${end}/${total}`, c.dim) : '';
-            pos = col(`  [${this.selected + 1}/${this.panels.length}]`, c.dim) + scrollInfo;
-        }
-        return nav + pos;
-    }
+    get __selectedTool(): number { return this.selectedTool; }
+    get __cursorItem(): number { return this.cursorItem; }
+    get __mode(): Mode { return this.mode; }
+    get __report(): SelectionConversionReport | null { return this.report; }
+    __selectionIds(): string[] { return Array.from(this.currentSelection()); }
 }
 
-function stripAnsi(s: string): string {
-    return s.replace(ANSI_RE, '');
-}
+// ---------------------------------------------------------------------------
+// Entry point
+// ---------------------------------------------------------------------------
 
 /**
- * Entry point. Launches the interactive UI when stdout is a TTY; otherwise
- * returns false so the caller can fall back to non-interactive output.
+ * Launches the interactive UI when stdout is a TTY; otherwise returns false so
+ * the caller can fall back to non-interactive output.
  */
 export async function runInteractive(opts: InteractiveOptions): Promise<boolean> {
     if (!process.stdout.isTTY || !process.stdin.isTTY) {
@@ -586,7 +993,7 @@ export async function runInteractive(opts: InteractiveOptions): Promise<boolean>
 export const _internals = {
     InteractiveApp,
     buildPanels,
-    buildDetailLines,
+    buildSections,
     truncateToWidth,
     padToWidth,
     visibleWidth,

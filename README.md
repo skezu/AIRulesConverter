@@ -51,13 +51,17 @@
 The CLI is available via `npx` without any installation:
 
 ```bash
-# Launch the interactive scanner — scans the workspace and lets you browse the
-# results one AI tool at a time. Left pane = tool navigation, right pane = that
-# tool's full detail. ↑↓/jk select tool · PgUp/PgDn scroll · 1-9 jump ·
-# g toggle global/project · r rescan · q quit.
+# Launch the interactive scanner + converter. Scans the workspace (or global
+# config) and shows results one AI tool at a time: left pane = tool navigation,
+# right pane = that tool's rules, skills, MCP servers, hook events and installed
+# plugins (Claude Code + Antigravity) as individually selectable items.
+#   ←/→ switch tool   ↑/↓ move item   Space select   a select/clear all
+#   c convert selection (or all)   g toggle global/project scope   r rescan   q quit
+# After 'c', pick a target format and project/global scope, then Enter to convert.
 npx aimig
 
-# List all detected agent capabilities (rules, skills, MCPs, hooks) in the workspace
+# List all detected agent capabilities (rules, skills, MCPs, hooks) in the
+# workspace, plus installed plugins (Claude Code + Antigravity, always global)
 npx aimig scan
 
 # Limit the scan to a single format
