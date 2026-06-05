@@ -128,6 +128,7 @@
   },
   "scripts": {
     "vscode:prepublish": "bun run package",
+    "prepublishOnly": "bun run package",
     "compile": "bun run build",
     "build": "bun esbuild.js",
     "package": "bun esbuild.js --production",

@@ -1,16 +1,30 @@
+# Source & build tooling
+src
+tsconfig.json
+esbuild.js
+scripts
+
+# VCS & CI
 .git
 .github
+package-lock.json
+bun.lock
+
+# IDE / AI assistant configs
 .vscode
 .agent
 .claude
 .cursor
 .windsurf
 .kiro
-src
-tsconfig.json
-esbuild.js
+
+# Internal docs & packaging artifacts
+research
+images
 *.vsix
-package-lock.json
-bun.lock
-scripts
-images/logo-old.png
+
+# npm ships the CLI only — drop the VS Code extension build, sourcemaps, test bundles
+out/extension.js
+out/extension.js.map
+out/cli.js.map
+out/*_test.cjs

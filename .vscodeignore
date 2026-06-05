@@ -1,14 +1,36 @@
-.vscode/**
-.vscode-test/**
+# Dev sources & tooling
 src/**
-.gitignore
-.git/**
-.gitattributes
 esbuild.js
 tsconfig.json
 node_modules/**
+scripts/**
+.npmignore
+
+# VCS & CI
+.git/**
+.gitignore
+.gitattributes
+.github/**
+
+# IDE / AI assistant configs (not for the marketplace bundle)
+.agent/**
+.claude/**
+.cursor/**
+.windsurf/**
+.kiro/**
+CLAUDE.md
+.vscode/**
+.vscode-test/**
+
+# Internal docs & packaging artifacts
+research/**
+bun.lock
+*.vsix
+
+# Ship only the bundled extension entry — drop CLI, sourcemaps, test bundles
+out/**
 !out/extension.js
-!images/**
+images/logo-old.png
 !package.json
 !README.md
 !LICENSE
