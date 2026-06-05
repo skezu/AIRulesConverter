@@ -7,17 +7,23 @@ VS Code extension + standalone CLI that converts AI coding rules between Cursor,
 | Layer | Technology |
 |-------|-----------|
 | Language | TypeScript 5.x (strict mode) |
-| Runtime | Node.js, VS Code extension API |
+| Runtime | Node.js (published CLI shebang) — dev workflow runs on Bun |
+| Package manager | Bun (`bun.lock`) |
 | Build | esbuild (bundles to `out/`) |
 | YAML parsing | js-yaml |
 
 ## Build & Run
 
+Dev workflow uses **Bun** as runtime + package manager. esbuild stays the bundler;
+the published CLI keeps its `#!/usr/bin/env node` shebang so end users run it on Node (`npx aimig`) or Bun (`bunx aimig`).
+
 ```sh
-npm run build     # compile once
-npm run watch     # compile on change
-npm run package   # minified production build
-npm run cli       # run CLI directly from out/
+bun install       # install deps (writes bun.lock)
+bun run build     # compile once
+bun run watch     # compile on change
+bun run package   # minified production build
+bun run cli       # run CLI directly from out/
+bun run test      # run smoke test suites (test:ui + test:plugins)
 ```
 
 ## Project Structure
@@ -58,13 +64,13 @@ src/
 - Class-based scanners and converters; pure functions for content builders
 - Errors surfaced via try/catch aggregated into report objects (`MigrationReport`)
 - Commit style: `type: description` (feat, fix, chore, docs, release)
-- No linting or test runner configured yet
+- No linting configured yet; smoke tests run via `bun run test` (esbuild-bundled `.cjs` checks, not a formal runner)
 
 ## Common Tasks
 
 | Task | How |
 |------|-----|
 | Add a new IDE format | Add to `IDE` union in `RuleModel.ts`, add scanner logic, add case in `convertRuleToResult()` switch |
-| Test the CLI | `npm run build && node out/cli.js scan` |
-| Package the extension | `npm run package` → produces `.vsix` |
+| Test the CLI | `bun run build && bun out/cli.js scan` |
+| Package the extension | `bun run package` → produces `.vsix` |
 | Debug in VS Code | Use `.vscode/launch.json` — "Run Extension" config |

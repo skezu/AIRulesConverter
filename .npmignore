@@ -11,4 +11,6 @@ tsconfig.json
 esbuild.js
 *.vsix
 package-lock.json
+bun.lock
+scripts
 images/logo-old.png
